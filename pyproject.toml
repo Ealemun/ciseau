@@ -4,8 +4,9 @@ version = "0.1.0"
 description = "Télécharge un extrait précis de n'importe quelle vidéo (YouTube et 1800+ sites) entre deux timecodes."
 readme = "README.md"
 requires-python = ">=3.10"
-# yt-dlp fait tout le travail de résolution/téléchargement ; ffmpeg doit être installé à part.
-dependencies = ["yt-dlp>=2025.1.1"]
+# yt-dlp fait tout le travail de résolution/téléchargement ; [default] ajoute ses composants
+# optionnels (dont le solveur JavaScript utilisé pour YouTube). ffmpeg doit être installé à part.
+dependencies = ["yt-dlp[default]>=2025.1.1"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
