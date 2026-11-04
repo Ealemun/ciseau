@@ -239,13 +239,13 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--acier);
         <label>Début
           <span class="champ">
             <input type="text" id="debut" value="0:00.000" spellcheck="false">
-            <button type="button" class="petit" id="btn-debut-ici" title="Prendre la position du lecteur (touche I)" hidden>Ici</button>
+            <button type="button" class="petit" id="btn-debut-ici" title="Prendre la position du lecteur (touche D)" hidden>Ici</button>
           </span>
         </label>
         <label>Fin
           <span class="champ">
             <input type="text" id="fin" value="0:00.000" spellcheck="false">
-            <button type="button" class="petit" id="btn-fin-ici" title="Prendre la position du lecteur (touche O)" hidden>Ici</button>
+            <button type="button" class="petit" id="btn-fin-ici" title="Prendre la position du lecteur (touche E)" hidden>Ici</button>
           </span>
         </label>
         <div class="duree">durée de l'extrait<strong id="duree">0:00.000</strong></div>
@@ -253,7 +253,7 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--acier);
 
       <div class="actions">
         <button type="button" id="btn-apercu" hidden>Lire l'extrait</button>
-        <span class="aide" id="aide-touches" hidden>Pendant la lecture : <kbd>I</kbd> pose le début, <kbd>O</kbd> la fin.</span>
+        <span class="aide" id="aide-touches" hidden>Pendant la lecture : <kbd>D</kbd> pose le début, <kbd>E</kbd> la fin.</span>
         <button type="button" class="coupe pousser" id="btn-extraire">Extraire</button>
       </div>
       <p class="erreur" id="erreur-extraire" hidden></p>
@@ -466,14 +466,14 @@ $("frise").addEventListener("pointerdown", ev => {
   majTemps();
 });
 
-/* Boutons « Ici » et touches I / O : prendre la position du lecteur. */
+/* Boutons « Ici » et touches D / E : prendre la position du lecteur. */
 const positionLecteur = () => (player && player.getCurrentTime) ? player.getCurrentTime() : null;
 $("btn-debut-ici").onclick = () => { const t = positionLecteur(); if (t != null) { debut = t; if (fin <= debut) fin = Math.min(info.duree, debut + 10); majTemps(); } };
 $("btn-fin-ici").onclick = () => { const t = positionLecteur(); if (t != null) { fin = t; if (debut >= fin) debut = Math.max(0, fin - 10); majTemps(); } };
 document.addEventListener("keydown", ev => {
   if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
-  if (ev.key === "i" || ev.key === "I") $("btn-debut-ici").click();
-  if (ev.key === "o" || ev.key === "O") $("btn-fin-ici").click();
+  if (ev.key === "d" || ev.key === "D") $("btn-debut-ici").click();
+  if (ev.key === "e" || ev.key === "E") $("btn-fin-ici").click();
 });
 
 /* Lire l'extrait dans le lecteur : saute au début, s'arrête à la fin. */
