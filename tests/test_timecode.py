@@ -2,7 +2,7 @@
 
 import pytest
 
-from extrait.timecode import TimecodeError, format_fichier, format_hms, parse, valider_plage
+from ciseau.timecode import TimecodeError, format_fichier, format_hms, parse, valider_plage
 
 
 @pytest.mark.parametrize(

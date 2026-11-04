@@ -1,4 +1,4 @@
-"""extrait — télécharge un extrait précis d'une vidéo entre deux timecodes.
+"""ciseau — télécharge un extrait précis d'une vidéo entre deux timecodes.
 
 Le paquet est organisé en couches indépendantes :
 
@@ -8,7 +8,7 @@ Le paquet est organisé en couches indépendantes :
 - resolver.py   : métadonnées d'une URL via yt-dlp (titre, durée, chapitres...).
 - downloader.py : téléchargement d'un seul extrait d'une URL via yt-dlp.
 - pipeline.py   : orchestration : source (URL ou fichier) -> fichier extrait.
-- cli.py        : ligne de commande `extrait`.
+- cli.py        : ligne de commande `ciseau`.
 """
 
 __version__ = "0.1.0"

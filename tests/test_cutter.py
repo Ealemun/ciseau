@@ -9,7 +9,7 @@ import subprocess
 
 import pytest
 
-from extrait import cutter, ffmpeg
+from ciseau import cutter, ffmpeg
 
 pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg absent")
 

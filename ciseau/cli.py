@@ -1,12 +1,12 @@
-"""Ligne de commande `extrait`.
+"""Ligne de commande `ciseau`.
 
 Exemples :
 
-    extrait clip "https://www.youtube.com/watch?v=XXXX" 1:23:04 1:25:30
-    extrait clip "https://youtu.be/XXXX?t=90" - 2:00          # début pris dans l'URL
-    extrait clip video.mp4 0:10 0:25 --rapide
-    extrait clip "https://…" 10:00 12:00 --audio -o refrain.m4a
-    extrait info "https://www.youtube.com/watch?v=XXXX"
+    ciseau clip "https://www.youtube.com/watch?v=XXXX" 1:23:04 1:25:30
+    ciseau clip "https://youtu.be/XXXX?t=90" - 2:00          # début pris dans l'URL
+    ciseau clip video.mp4 0:10 0:25 --rapide
+    ciseau clip "https://…" 10:00 12:00 --audio -o refrain.m4a
+    ciseau info "https://www.youtube.com/watch?v=XXXX"
 
 Bibliothèque standard uniquement (argparse) pour une installation sans friction.
 """
@@ -24,13 +24,13 @@ from .timecode import TimecodeError, format_hms
 
 def _construire_parseur() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="extrait",
+        prog="ciseau",
         description="Télécharge ou découpe un extrait précis d'une vidéo entre deux timecodes.",
     )
-    p.add_argument("--version", action="version", version=f"extrait {__version__}")
+    p.add_argument("--version", action="version", version=f"ciseau {__version__}")
     sous = p.add_subparsers(dest="commande", required=True)
 
-    # --- extrait clip ------------------------------------------------------
+    # --- ciseau clip ------------------------------------------------------
     c = sous.add_parser("clip", help="télécharger / découper un extrait")
     c.add_argument("source", help="URL (YouTube, Twitch, …) ou fichier vidéo local")
     c.add_argument("debut", nargs="?", default=None,
@@ -54,7 +54,7 @@ def _construire_parseur() -> argparse.ArgumentParser:
     c.add_argument("--cookies", type=Path, metavar="FICHIER", help="fichier cookies.txt")
     c.add_argument("-v", "--verbeux", action="store_true", help="journaux détaillés")
 
-    # --- extrait info ------------------------------------------------------
+    # --- ciseau info ------------------------------------------------------
     i = sous.add_parser("info", help="afficher titre, durée et chapitres d'une source")
     i.add_argument("source")
     i.add_argument("--cookies-navigateur", metavar="NAV")
@@ -141,5 +141,5 @@ def main(argv: list[str] | None = None) -> int:
         return 130
 
 
-if __name__ == "__main__":  # python -m extrait.cli …
+if __name__ == "__main__":  # python -m ciseau.cli …
     sys.exit(main())

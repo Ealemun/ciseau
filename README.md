@@ -1,9 +1,9 @@
-# extrait
+# ciseau
 
 Télécharge **un extrait précis** de n'importe quelle vidéo (YouTube, Twitch, Twitter, 1 800+ sites via yt-dlp, ou un fichier local) entre un timecode de début et un timecode de fin — sans récupérer la vidéo entière.
 
 ```
-extrait clip "https://www.youtube.com/watch?v=XXXX" 1:23:04 1:25:30
+ciseau clip "https://www.youtube.com/watch?v=XXXX" 1:23:04 1:25:30
 ```
 
 ## Installation
@@ -32,8 +32,8 @@ YouTube change souvent : si un téléchargement échoue, mettez d'abord yt-dlp �
 ## Utilisation
 
 ```
-extrait clip SOURCE [DEBUT] [FIN] [options]
-extrait info SOURCE
+ciseau clip SOURCE [DEBUT] [FIN] [options]
+ciseau info SOURCE
 ```
 
 - `SOURCE` : une URL ou un fichier vidéo local.
@@ -42,11 +42,11 @@ extrait info SOURCE
 Exemples :
 
 ```
-extrait clip "https://youtu.be/XXXX?t=90" - 2:00            # de 1:30 (dans l'URL) à 2:00
-extrait clip conference.mp4 12:00 14:30 --rapide             # fichier local, copie instantanée
-extrait clip "https://…" 10:00 12:00 --audio -o refrain.m4a  # bande-son seule
-extrait clip "https://…" 0:10 0:40 --hauteur 1080 --encodeur h264_nvenc
-extrait info "https://www.youtube.com/watch?v=XXXX"          # titre, durée, chapitres
+ciseau clip "https://youtu.be/XXXX?t=90" - 2:00            # de 1:30 (dans l'URL) à 2:00
+ciseau clip conference.mp4 12:00 14:30 --rapide             # fichier local, copie instantanée
+ciseau clip "https://…" 10:00 12:00 --audio -o refrain.m4a  # bande-son seule
+ciseau clip "https://…" 0:10 0:40 --hauteur 1080 --encodeur h264_nvenc
+ciseau info "https://www.youtube.com/watch?v=XXXX"          # titre, durée, chapitres
 ```
 
 ### Modes de découpe
@@ -71,7 +71,7 @@ YouTube bloque parfois les téléchargements. Dans l'ordre :
 ## Architecture
 
 ```
-extrait/
+ciseau/
   timecode.py    lecture/écriture des timecodes
   ffmpeg.py      localisation et pilotage de ffmpeg/ffprobe, encodeurs
   cutter.py      découpe d'un fichier local (rapide / précis / audio)
