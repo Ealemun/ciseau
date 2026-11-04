@@ -75,11 +75,18 @@ class FileDeTravaux:
     # -- API publique --------------------------------------------------------
 
     def ajouter(self, donnees: dict) -> Travail:
+        # Attention : 0 est un début valide, on ne peut donc pas écrire `x or None`.
+        def temps(cle: str):
+            valeur = donnees.get(cle)
+            return None if valeur in (None, "") else valeur
+
+        if not str(donnees.get("source") or "").strip():
+            raise ValueError("source manquante")
         travail = Travail(
             id=uuid.uuid4().hex[:8],
-            source=donnees["source"],
-            debut=donnees.get("debut") or None,
-            fin=donnees.get("fin") or None,
+            source=str(donnees["source"]).strip(),
+            debut=temps("debut"),
+            fin=temps("fin"),
             mode=donnees.get("mode") or "precis",
             options={k: donnees[k] for k in ("hauteur_max", "encodeur", "cookies_navigateur")
                      if donnees.get(k)},
@@ -196,9 +203,62 @@ class Gestionnaire(BaseHTTPRequestHandler):
         if self.server.verbeux:
             super().log_message(fmt, *args)
 
+    # -- Sécurité ------------------------------------------------------------
+    #
+    # Le serveur n'écoute que sur 127.0.0.1, mais n'importe quel site ouvert
+    # dans le navigateur pourrait quand même lui envoyer des requêtes (la
+    # machine qui exécute la page EST 127.0.0.1). Sans protection, une page
+    # malveillante pourrait lancer des téléchargements ou ouvrir l'explorateur.
+    # Trois verrous, du plus simple au plus subtil :
+    #
+    # 1. En-tête Host : doit désigner la machine locale. Bloque le « DNS
+    #    rebinding » (un domaine piégé qui se met à pointer vers 127.0.0.1).
+    # 2. En-tête Origin (envoyé par les navigateurs pour les requêtes
+    #    inter-sites) : seuls l'interface elle-même et les extensions sont admises.
+    # 3. Les POST doivent être en application/json : pour une page web, ce type
+    #    déclenche une requête préalable CORS que le serveur ne valide jamais,
+    #    donc la vraie requête n'est même pas envoyée.
+
+    def _hotes_autorises(self) -> set[str]:
+        port = self.server.server_address[1]
+        return {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+
+    def _requete_autorisee(self, post: bool) -> str | None:
+        """Renvoie None si la requête est acceptable, sinon la raison du refus."""
+        hote = (self.headers.get("Host") or "").lower()
+        if hote not in self._hotes_autorises():
+            return "hôte non autorisé"
+        origine = self.headers.get("Origin")
+        if origine:
+            origine = origine.lower()
+            interne = {f"http://{h}" for h in self._hotes_autorises()}
+            extension = origine.startswith(("chrome-extension://", "moz-extension://"))
+            if origine not in interne and not extension:
+                return "origine non autorisée"
+        if post and not (self.headers.get("Content-Type") or "").startswith("application/json"):
+            return "Content-Type application/json attendu"
+        return None
+
+    def _refuser_si_besoin(self, post: bool) -> bool:
+        """Répond 403 et renvoie True si la requête doit être refusée."""
+        raison = self._requete_autorisee(post)
+        if raison:
+            self._json({"erreur": f"requête refusée : {raison}"}, 403)
+            return True
+        return False
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        # Requête préalable CORS d'une page web : refusée sans en-têtes CORS,
+        # le navigateur abandonne donc la requête réelle.
+        self.send_response(403)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     # -- Routes --------------------------------------------------------------
 
     def do_GET(self) -> None:  # noqa: N802
+        if self._refuser_si_besoin(post=False):
+            return
         chemin = urlparse(self.path).path
         if chemin in ("/", "/index.html"):
             self._fichier(DOSSIER_UI / "index.html")
@@ -219,6 +279,8 @@ class Gestionnaire(BaseHTTPRequestHandler):
             self._json({"erreur": "route inconnue"}, 404)
 
     def do_POST(self) -> None:  # noqa: N802
+        if self._refuser_si_besoin(post=True):
+            return
         chemin = urlparse(self.path).path
         try:
             if chemin == "/api/info":
