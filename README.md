@@ -71,6 +71,16 @@ Dans l'explorateur, ouvre le dossier du projet et **double-clique sur `ciseau.ba
 
 Les extraits sont rangés dans le dossier **`extraits`** du projet, nommés d'après la vidéo et le passage : `Titre de la vidéo [1m23s-1m45s].mp4`.
 
+**Plusieurs extraits d'un coup :** ouvre « Plusieurs extraits d'un coup » sous le champ du lien, colle une ligne par extrait (le lien, le début, la fin) et clique **Ajouter à la file**. Trois extraits sont traités en même temps ; les autres attendent leur tour.
+
+```
+https://www.youtube.com/watch?v=AAAA 1:23 1:45
+https://youtu.be/BBBB?t=90 - 2:30
+https://www.twitch.tv/videos/123 1:02:00 1:03:30
+```
+
+Sous chaque extrait terminé, ciseau indique comment il l'a obtenu et en combien de temps (survole la ligne pour le détail de chaque étape).
+
 ### 4. Installer l'extension (facultatif, recommandé)
 
 L'extension pose un petit panneau en bas à droite des pages YouTube : plus besoin de copier des liens.
@@ -110,6 +120,7 @@ puis relance `ciseau.bat`. Si tu as installé l'extension, clique aussi sur la f
 | Le panneau de l'extension dit « ciseau n'est pas lancé » | Double-clique sur `ciseau.bat` et laisse la fenêtre noire ouverte. |
 | Échec avec « Sign in to confirm you're not a bot » | YouTube veut une session connectée. Dans l'interface, ouvre **Réglages** → **Cookies du navigateur** et choisis **Firefox** si tu y es connecté à YouTube (le plus fiable sous Windows). Avec Chrome ou Edge, ferme complètement le navigateur avant d'extraire. |
 | Échec avec « Requested format is not available » ou « n challenge solving failed » | Installe Deno (`winget install DenoLand.Deno`) et relance `ciseau.bat`, qui met aussi yt-dlp à jour. |
+| Un extrait affiche « yt-dlp (méthode lente) » | La méthode rapide ne s'applique pas à cette vidéo : survole la ligne pour savoir pourquoi (pas de flux H.264 séparé, site qui ne sert pas de DASH MP4, adresse refusée…). L'extrait est quand même produit, mais au rythme de la vidéo. Si ça arrive sur YouTube, mets yt-dlp à jour (relance `ciseau.bat`, ou `make maj`). |
 | L'extrait démarre une ou deux secondes trop tôt | Tu es en mode **Rapide** : il démarre sur l'image-clé précédente. Passe en **Précis** (par défaut). |
 | Le port 8765 est déjà utilisé | Lance `python -m ciseau ui --port 8766` et règle le même port dans la fenêtre de l'extension. |
 
@@ -122,6 +133,7 @@ Après `pip install -e .` (ce que fait `ciseau.bat` la première fois), la comma
 ```
 ciseau ui                                  # l'interface (ce que lance ciseau.bat)
 ciseau clip SOURCE [DEBUT] [FIN] [options] # un extrait
+ciseau lot LISTE.txt [-j N] [options]      # plusieurs extraits, N à la fois (3 par défaut)
 ciseau info SOURCE                         # titre, durée, chapitres
 ```
 
@@ -139,7 +151,27 @@ ciseau clip "https://…" 0:10 0:40 --hauteur 1080 --encodeur h264_nvenc
 ciseau clip "https://…" 0:10 0:40 --cookies-navigateur firefox
 ```
 
-Options de `ciseau ui` : `--port`, `-d DOSSIER` (dossier des extraits), `--sans-navigateur`.
+`LISTE.txt` contient une ligne par extrait, au même format que la zone « Plusieurs extraits d'un coup » de l'interface (voir `ciseau/lot.py`). Les lignes vides et celles qui commencent par `#` sont ignorées ; un échec n'arrête pas les autres extraits.
+
+Options de `ciseau ui` : `--port`, `-d DOSSIER` (dossier des extraits), `-j N` (extraits en même temps), `--sans-navigateur`.
+
+### Vitesse : comment ciseau télécharge
+
+YouTube bride toute connexion qui ne télécharge pas par morceaux de 10 Mo au plus. Or, pour une plage de temps, yt-dlp confie le travail à ffmpeg, qui lit la vidéo d'un seul tenant : bridé, il avance à peu près au rythme de la vidéo. Une minute d'extrait coûte une minute d'attente.
+
+ciseau procède autrement (`ciseau/segments.py`) :
+
+1. il lit l'index des flux vidéo et audio (quelques dizaines de Ko) pour savoir quels octets couvrent l'extrait ;
+2. il ne télécharge que ces octets, par morceaux de 10 Mo, sur 4 connexions par flux (`--connexions`), vidéo et audio en même temps ;
+3. il découpe en local, à l'image près.
+
+Sur un serveur de test bridé comme YouTube, extraire 1 minute d'une vidéo 720p passe de 50 s à la seule durée du transfert (31 Mo, soit environ 3 s sur une connexion à 100 Mb/s). Cette méthode s'applique aux vidéos servies en DASH MP4 (H.264 + AAC), soit l'essentiel de YouTube. Comme avant, ciseau prend le meilleur flux H.264, soit 1080p au plus sur YouTube (au-delà, YouTube ne propose que du VP9 ou de l'AV1). Si la méthode rapide ne s'applique pas, ciseau se rabat automatiquement sur yt-dlp.
+
+S'y ajoutent :
+
+- les métadonnées de chaque vidéo sont gardées 30 minutes : l'analyse puis le téléchargement n'interrogent YouTube qu'une fois ;
+- plusieurs extraits tournent en parallèle (3 par défaut). Monter au-delà de 4 ou 5 gagne peu (la connexion ou le processeur saturent) et risque d'attirer l'attention de YouTube, qui bride les adresses trop gourmandes ;
+- en mode précis, la découpe réencode l'extrait : sur une carte graphique, choisis l'encodeur correspondant (**Réglages** → **Encodeur**) pour aller plusieurs fois plus vite ; le mode rapide, lui, ne réencode rien.
 
 ### Modes de découpe
 
@@ -163,6 +195,8 @@ ciseau/
   resolver.py    description d'une source : fichier, lien direct, ou page via yt-dlp
   downloader.py  téléchargement d'une seule plage via yt-dlp + ffmpeg
   nommage.py     noms de fichiers portables
+  segments.py    téléchargement rapide : index sidx, octets utiles seulement, morceaux de 10 Mo
+  lot.py         lecture d'une liste d'extraits (une ligne par extrait)
   pipeline.py    orchestration : extraire(source, debut, fin, options)
   cli.py         ligne de commande
   serveur.py     API JSON locale (bibliothèque standard) + file de travaux
@@ -190,6 +224,7 @@ Les tests génèrent des vidéos synthétiques avec ffmpeg et démarrent de vrai
 
 - Frise de vignettes (storyboard YouTube) pour viser sans lire la vidéo
 - « Smart cut » : réencodage des seules bordures, copie du milieu, précis et quasi instantané
-- Plusieurs extraits d'une même vidéo en une passe, découpe par chapitres, recherche dans les sous-titres
+- Découpe par chapitres, recherche dans les sous-titres
+- Méthode rapide pour le WebM (VP9/AV1, au-delà de 1080p) et les flux HLS
 - Préréglages d'export (vertical 9:16, GIF, codec intermédiaire pour le montage)
 - Extension pour Firefox
