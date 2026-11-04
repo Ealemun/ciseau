@@ -1,0 +1,9 @@
+<!-- Icône ciseau : anneaux orangés et lames claires sur le vert du tapis de découpe. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="28" fill="#1e3a31"/>
+  <line x1="48" y1="50" x2="108" y2="92" stroke="#edefe8" stroke-width="10" stroke-linecap="round"/>
+  <line x1="48" y1="78" x2="108" y2="36" stroke="#edefe8" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="74" cy="64" r="5" fill="#1e3a31"/>
+  <circle cx="36" cy="42" r="15" fill="none" stroke="#e4572e" stroke-width="10"/>
+  <circle cx="36" cy="86" r="15" fill="none" stroke="#e4572e" stroke-width="10"/>
+</svg>

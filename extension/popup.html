@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>ciseau</title>
+<style>
+  /* Fenêtre qui s'ouvre au clic sur l'icône de l'extension. */
+  body {
+    margin: 0; width: 320px; background: #1e3a31; color: #edefe8;
+    font: 13px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  main { padding: 14px 16px 16px; }
+  h1 { font-size: 18px; margin: 0 0 10px; font-weight: 700; letter-spacing: -.01em; }
+  h1 b { color: #e4572e; }
+  h2 { font-size: 13px; font-weight: 600; color: #8ea39a; margin: 16px 0 6px; }
+  .etat { display: flex; align-items: center; gap: 8px; }
+  .etat .point { width: 9px; height: 9px; border-radius: 50%; background: #8ea39a; flex: none; }
+  .etat.ok .point { background: #7fd1a4; }
+  .etat.ko .point { background: #e4572e; }
+  .aide { color: #cfd6cf; margin: 6px 0 0; }
+  code { font-family: Consolas, monospace; font-size: 12px; background: rgba(237,239,232,.1); padding: 0 4px; border-radius: 3px; }
+  button {
+    font: inherit; font-weight: 600; cursor: pointer; border-radius: 5px; padding: 6px 10px; width: 100%;
+    border: 1px solid rgba(237,239,232,.35); background: transparent; color: #edefe8; margin-top: 8px;
+  }
+  button:hover { border-color: #edefe8; }
+  button.principal { background: #e4572e; border-color: #e4572e; color: #fff; }
+  button.principal:hover { background: #c3461f; border-color: #c3461f; }
+  button:focus-visible, input:focus-visible { outline: 2px solid #e4572e; outline-offset: 1px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { padding: 6px 0; border-top: 1px solid rgba(237,239,232,.12); }
+  li .nom { word-break: break-word; }
+  li .info { color: #8ea39a; font-size: 12px; }
+  li .info.erreur { color: #ffb39c; }
+  .vide { color: #8ea39a; }
+  .reglages { display: grid; grid-template-columns: 1fr 70px; gap: 6px 10px; align-items: center; }
+  .reglages label { color: #cfd6cf; }
+  input {
+    font: inherit; font-family: Consolas, monospace; text-align: center; color: #1b2a24; background: #edefe8;
+    border: 1px solid transparent; border-radius: 5px; padding: 4px 6px; width: 100%;
+  }
+  .message { color: #ffb39c; margin: 6px 0 0; }
+  .message:empty { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1><b>c</b>iseau</h1>
+
+  <div class="etat" id="etat"><span class="point"></span><span id="etat-texte">Connexion à ciseau…</span></div>
+  <p class="aide" id="aide-hors-ligne" hidden>
+    Lance ciseau : double-clique sur <code>ciseau.bat</code> dans le dossier du projet
+    (ou tape <code>ciseau ui</code> dans un terminal), puis rouvre cette fenêtre.
+  </p>
+
+  <button class="principal" id="injecter">Afficher le panneau sur cette page</button>
+  <p class="message" id="message"></p>
+  <button id="interface">Ouvrir l'interface complète</button>
+
+  <h2>Derniers extraits</h2>
+  <ul id="travaux"></ul>
+  <p class="vide" id="vide">Aucun pour l'instant.</p>
+
+  <h2>Réglages</h2>
+  <div class="reglages">
+    <label for="touche-debut">Touche pour poser le début</label>
+    <input id="touche-debut" maxlength="1">
+    <label for="touche-fin">Touche pour poser la fin</label>
+    <input id="touche-fin" maxlength="1">
+    <label for="port">Port de ciseau ui</label>
+    <input id="port" inputmode="numeric">
+  </div>
+</main>
+<script src="popup.js"></script>
+</body>
+</html>
