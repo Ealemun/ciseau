@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ciseau</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+/* ------------------------------------------------------------------
+   Jetons de design.
+   L'image directrice : un tapis de découpe (vert profond, quadrillé) sur
+   lequel est posée une feuille claire ; l'accent orangé est celui des
+   anneaux de ciseaux, réservé aux actions de coupe.
+   ------------------------------------------------------------------ */
+:root {
+  --tapis: #1e3a31;
+  --tapis-ligne: rgba(255, 255, 255, .055);
+  --feuille: #edefe8;
+  --feuille-2: #e2e6dd;
+  --encre: #1b2a24;
+  --encre-2: #5c6b63;
+  --acier: #8ea39a;
+  --coupe: #e4572e;
+  --coupe-2: #c3461f;
+  --sans: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", Consolas, "Courier New", monospace;
+  --rayon: 6px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--encre);
+  background:
+    linear-gradient(var(--tapis-ligne) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(90deg, var(--tapis-ligne) 1px, transparent 1px) 0 0 / 24px 24px,
+    var(--tapis);
+  min-height: 100vh;
+  padding: 24px 16px 64px;
+}
+main { max-width: 920px; margin: 0 auto; }
+
+/* En-tête : le nom de l'outil, en blanc sur le tapis. */
+header { display: flex; align-items: baseline; gap: 16px; color: #fff; margin-bottom: 20px; }
+header h1 { font-size: 40px; font-weight: 700; margin: 0; letter-spacing: -.02em; font-variation-settings: "opsz" 96; }
+header h1 .lame { color: var(--coupe); }
+header .meta { color: rgba(255,255,255,.65); font-size: 14px; }
+header .meta code { font-family: var(--mono); font-size: 13px; }
+
+/* La feuille : un seul panneau, les sections y sont séparées par un trait de coupe. */
+.feuille {
+  background: var(--feuille);
+  border-radius: 10px;
+  box-shadow: 0 1px 0 rgba(0,0,0,.25), 0 14px 40px rgba(0,0,0,.35);
+  overflow: hidden;
+}
+section { padding: 22px 26px; }
+section + section { border-top: 1px dashed var(--acier); position: relative; }
+section + section::before {
+  content: "\2702"; /* ✂ */
+  position: absolute; top: -11px; left: 12px;
+  color: var(--acier); background: var(--feuille); padding: 0 4px; font-size: 15px; line-height: 1;
+}
+h2 { font-size: 15px; font-weight: 500; color: var(--encre-2); margin: 0 0 12px; }
+
+/* Champs et boutons */
+input[type=text], select {
+  font: inherit; color: var(--encre); background: #fff;
+  border: 1px solid var(--acier); border-radius: var(--rayon); padding: 9px 12px;
+}
+input[type=text]:focus, select:focus, button:focus-visible { outline: 2px solid var(--coupe); outline-offset: 2px; }
+.source { display: flex; gap: 10px; }
+.source input { flex: 1; font-size: 17px; }
+button {
+  font: inherit; font-weight: 500; cursor: pointer;
+  border: 1px solid var(--acier); background: #fff; color: var(--encre);
+  border-radius: var(--rayon); padding: 9px 14px;
+}
+button:hover { border-color: var(--encre-2); }
+button:disabled { opacity: .5; cursor: default; }
+button.coupe { background: var(--coupe); border-color: var(--coupe); color: #fff; }
+button.coupe:hover:not(:disabled) { background: var(--coupe-2); border-color: var(--coupe-2); }
+button.petit { padding: 5px 10px; font-size: 14px; }
+.aide { color: var(--encre-2); font-size: 14px; margin: 8px 0 0; }
+.erreur { color: var(--coupe-2); font-size: 14px; margin: 8px 0 0; }
+details summary { cursor: pointer; color: var(--encre-2); font-size: 14px; margin-top: 10px; }
+.reglages { display: flex; flex-wrap: wrap; gap: 14px 24px; margin-top: 10px; align-items: end; }
+.reglages label, .reglages .reglage { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--encre-2); }
+.reglages label > select, .reglages label > input { color: var(--encre); }
+.radios { display: flex; gap: 0; border: 1px solid var(--acier); border-radius: var(--rayon); overflow: hidden; background: #fff; }
+.radios label { padding: 8px 12px; cursor: pointer; border-right: 1px solid var(--acier); color: var(--encre); }
+.radios label:last-child { border-right: 0; }
+.radios label:has(input:checked) { background: var(--encre); color: #fff; }
+.radios input { position: absolute; opacity: 0; width: 0; height: 0; }
+
+/* Vidéo */
+.video { display: none; }
+.video.visible { display: block; animation: poser .25s ease-out; }
+@keyframes poser { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .video.visible { animation: none; } }
+.lecteur { aspect-ratio: 16 / 9; background: #000; border-radius: var(--rayon); overflow: hidden; max-height: 420px; }
+.lecteur iframe, .lecteur img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.titre { margin: 12px 0 2px; font-size: 20px; font-weight: 500; }
+.sous-titre { color: var(--encre-2); font-size: 14px; }
+
+/* La frise : l'élément mémorable. Deux repères de coupe que l'on fait glisser. */
+.frise { position: relative; height: 54px; margin: 22px 0 4px; user-select: none; touch-action: none; }
+.frise .piste { position: absolute; left: 0; right: 0; top: 18px; height: 18px; background: var(--feuille-2); border-radius: 3px;
+  background-image: repeating-linear-gradient(90deg, transparent 0 7px, rgba(0,0,0,.06) 7px 8px); }
+.frise .choisi { position: absolute; top: 18px; height: 18px; background: var(--encre); opacity: .85; }
+.frise .repere { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px dashed var(--coupe); cursor: ew-resize; }
+.frise .repere::before {
+  content: "\2702"; position: absolute; top: -2px; left: -9px; font-size: 16px; color: var(--coupe); background: var(--feuille);
+  padding: 0 1px; line-height: 1; transform: rotate(90deg); font-size: 18px;
+}
+.frise .repere.fin::before { transform: rotate(-90deg); left: -8px; }
+.frise .repere::after {
+  content: attr(data-tc); position: absolute; bottom: -2px; left: 6px; font-family: var(--mono); font-size: 11px; color: var(--coupe-2); white-space: nowrap;
+}
+.frise .repere.fin::after { left: auto; right: 6px; }
+.frise .lecture { position: absolute; top: 14px; height: 26px; width: 2px; background: #fff; box-shadow: 0 0 0 1px var(--encre); pointer-events: none; display: none; }
+.chapitres { display: flex; gap: 2px; height: 10px; margin-bottom: 14px; }
+.chapitres span { background: var(--acier); opacity: .55; border-radius: 2px; cursor: pointer; min-width: 2px; }
+.chapitres span:hover { opacity: 1; }
+
+/* Les deux temps, en chiffres tabulaires comme sur une table de montage. */
+.temps { display: grid; grid-template-columns: 1fr 1fr auto; gap: 16px; align-items: end; }
+.temps label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--encre-2); }
+.temps .champ { display: flex; gap: 6px; }
+.temps input { font-family: var(--mono); font-size: 18px; width: 100%; letter-spacing: .02em; }
+.duree { font-family: var(--mono); font-size: 14px; color: var(--encre-2); text-align: right; }
+.duree strong { display: block; font-size: 22px; color: var(--encre); font-weight: 600; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-top: 18px; }
+.actions .pousser { margin-left: auto; }
+kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--acier); border-bottom-width: 2px; border-radius: 3px; padding: 0 5px; background: #fff; }
+
+/* Travaux */
+.travaux { list-style: none; margin: 0; padding: 0; }
+.travaux li { display: grid; grid-template-columns: 1fr auto; gap: 4px 14px; padding: 12px 0; border-bottom: 1px solid var(--feuille-2); }
+.travaux li:last-child { border-bottom: 0; }
+.travaux .nom { font-weight: 500; word-break: break-word; }
+.travaux .detail { color: var(--encre-2); font-size: 14px; font-family: var(--mono); }
+.travaux .etat { font-size: 14px; color: var(--encre-2); white-space: nowrap; }
+.travaux .etat.termine { color: var(--tapis); font-weight: 500; }
+.travaux .etat.erreur { color: var(--coupe-2); }
+.travaux .barre { grid-column: 1 / -1; height: 6px; background: var(--feuille-2); border-radius: 3px; overflow: hidden; }
+.travaux .barre i { display: block; height: 100%; background: var(--coupe); transition: width .4s; }
+.travaux .barre.attente i { width: 30% !important; animation: va-et-vient 1.2s ease-in-out infinite alternate; }
+@keyframes va-et-vient { from { margin-left: 0; } to { margin-left: 70%; } }
+.travaux .boutons { grid-column: 1 / -1; display: flex; gap: 8px; }
+.travaux .msg-erreur { grid-column: 1 / -1; color: var(--coupe-2); font-size: 14px; white-space: pre-wrap; }
+.vide { color: var(--encre-2); font-size: 14px; }
+
+@media (max-width: 640px) {
+  section { padding: 18px 16px; }
+  header h1 { font-size: 32px; }
+  .temps { grid-template-columns: 1fr; }
+  .duree { text-align: left; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1><span class="lame">c</span>iseau</h1>
+    <div class="meta">extraits rangés dans <code id="dossier">…</code></div>
+  </header>
+
+  <div class="feuille">
+
+    <!-- 1. La source -->
+    <section>
+      <form class="source" id="form-source">
+        <input type="text" id="source" placeholder="Colle un lien YouTube (ou Twitch, Twitter…) ou le chemin d'un fichier vidéo" autocomplete="off" spellcheck="false" autofocus>
+        <button type="submit" id="btn-analyser">Analyser</button>
+      </form>
+      <p class="aide" id="aide-source">Un lien copié « à cet instant » (avec <code>?t=</code>) place le début automatiquement.</p>
+      <p class="erreur" id="erreur-source" hidden></p>
+      <details>
+        <summary>Réglages</summary>
+        <div class="reglages">
+          <div class="reglage">Mode de coupe
+            <span class="radios" role="radiogroup">
+              <label><input type="radio" name="mode" value="precis" checked>Précis, à l'image près</label>
+              <label><input type="radio" name="mode" value="rapide">Rapide, sans réencodage</label>
+              <label><input type="radio" name="mode" value="audio">Audio seul</label>
+            </span>
+          </div>
+          <label>Qualité
+            <select id="hauteur">
+              <option value="">La meilleure</option>
+              <option value="1080">1080p max</option>
+              <option value="720">720p max</option>
+              <option value="480">480p max</option>
+            </select>
+          </label>
+          <label>Encodeur (mode précis)
+            <select id="encodeur">
+              <option value="libx264">Processeur (libx264)</option>
+              <option value="h264_nvenc">Carte NVIDIA (nvenc)</option>
+              <option value="h264_amf">Carte AMD (amf)</option>
+              <option value="h264_qsv">Intel QuickSync</option>
+              <option value="h264_videotoolbox">Apple (videotoolbox)</option>
+            </select>
+          </label>
+          <label>Cookies du navigateur
+            <select id="cookies">
+              <option value="">Aucun</option>
+              <option value="chrome">Chrome</option>
+              <option value="firefox">Firefox</option>
+              <option value="edge">Edge</option>
+              <option value="brave">Brave</option>
+            </select>
+          </label>
+        </div>
+        <p class="aide">Les cookies servent quand YouTube réclame une connexion (« confirmez que vous n'êtes pas un robot »). Le mode rapide démarre sur l'image-clé précédant le début : quelques secondes de rab possibles, rien ne manque.</p>
+      </details>
+    </section>
+
+    <!-- 2. La vidéo et les repères -->
+    <section class="video" id="video">
+      <div class="lecteur" id="lecteur"></div>
+      <p class="titre" id="titre"></p>
+      <p class="sous-titre" id="sous-titre"></p>
+
+      <div class="frise" id="frise">
+        <div class="piste"></div>
+        <div class="choisi" id="choisi"></div>
+        <div class="repere debut" id="rep-debut" data-tc="0:00" tabindex="0" role="slider" aria-label="début"></div>
+        <div class="repere fin" id="rep-fin" data-tc="0:00" tabindex="0" role="slider" aria-label="fin"></div>
+        <div class="lecture" id="tete"></div>
+      </div>
+      <div class="chapitres" id="chapitres"></div>
+
+      <div class="temps">
+        <label>Début
+          <span class="champ">
+            <input type="text" id="debut" value="0:00.000" spellcheck="false">
+            <button type="button" class="petit" id="btn-debut-ici" title="Prendre la position du lecteur (touche I)" hidden>Ici</button>
+          </span>
+        </label>
+        <label>Fin
+          <span class="champ">
+            <input type="text" id="fin" value="0:00.000" spellcheck="false">
+            <button type="button" class="petit" id="btn-fin-ici" title="Prendre la position du lecteur (touche O)" hidden>Ici</button>
+          </span>
+        </label>
+        <div class="duree">durée de l'extrait<strong id="duree">0:00.000</strong></div>
+      </div>
+
+      <div class="actions">
+        <button type="button" id="btn-apercu" hidden>Lire l'extrait</button>
+        <span class="aide" id="aide-touches" hidden>Pendant la lecture : <kbd>I</kbd> pose le début, <kbd>O</kbd> la fin.</span>
+        <button type="button" class="coupe pousser" id="btn-extraire">Extraire</button>
+      </div>
+      <p class="erreur" id="erreur-extraire" hidden></p>
+    </section>
+
+    <!-- 3. Les extraits -->
+    <section>
+      <h2>Extraits</h2>
+      <ul class="travaux" id="travaux"></ul>
+      <p class="vide" id="vide">Aucun extrait pour l'instant.</p>
+    </section>
+  </div>
+</main>
+
+<script>
+/* ==================================================================
+   Timecodes : mêmes règles que ciseau/timecode.py.
+   ================================================================== */
+function parseTimecode(txt) {
+  txt = String(txt).trim().toLowerCase().replace(",", ".");
+  if (!txt) throw new Error("timecode vide");
+  if (txt.includes(":")) {
+    const parts = txt.split(":");
+    if (parts.length > 3 || parts.some(p => p === "" || isNaN(p))) throw new Error("timecode illisible : " + txt);
+    return parts.reduce((acc, p) => acc * 60 + parseFloat(p), 0);
+  }
+  const m = txt.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s?)?$/);
+  if (!m || (!m[1] && !m[2] && !m[3])) throw new Error("timecode illisible : " + txt);
+  return (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (parseFloat(m[3]) || 0);
+}
+function fmt(s, ms = true) {
+  s = Math.max(0, s);
+  const totalMs = Math.round(s * 1000);
+  const h = Math.floor(totalMs / 3600000), mn = Math.floor(totalMs % 3600000 / 60000);
+  const sec = Math.floor(totalMs % 60000 / 1000), mil = totalMs % 1000;
+  const base = (h ? h + ":" + String(mn).padStart(2, "0") : mn) + ":" + String(sec).padStart(2, "0");
+  return ms ? base + "." + String(mil).padStart(3, "0") : base;
+}
+
+/* ==================================================================
+   État
+   ================================================================== */
+const $ = id => document.getElementById(id);
+let info = null;          // MediaInfo renvoyé par /api/info
+let debut = 0, fin = 0;   // en secondes
+let player = null;        // lecteur YouTube (IFrame API), s'il y en a un
+let apercuTimer = null;
+
+/* Réglages mémorisés localement (navigateur). */
+const CLES = ["hauteur", "encodeur", "cookies"];
+try {
+  CLES.forEach(k => { const v = localStorage.getItem("ciseau." + k); if (v !== null) $(k).value = v; });
+  const mode = localStorage.getItem("ciseau.mode");
+  if (mode) document.querySelector(`input[name=mode][value=${mode}]`).checked = true;
+} catch (e) {}
+function memoriser() {
+  try {
+    CLES.forEach(k => localStorage.setItem("ciseau." + k, $(k).value));
+    localStorage.setItem("ciseau.mode", modeChoisi());
+  } catch (e) {}
+}
+const modeChoisi = () => document.querySelector("input[name=mode]:checked").value;
+document.querySelectorAll(".reglages select, input[name=mode]").forEach(el => el.addEventListener("change", memoriser));
+
+fetch("/api/version").then(r => r.json()).then(v => { $("dossier").textContent = v.dossier; });
+
+/* ==================================================================
+   1. Analyse de la source
+   ================================================================== */
+$("form-source").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const source = $("source").value.trim();
+  if (!source) return;
+  $("btn-analyser").disabled = true; $("btn-analyser").textContent = "Analyse…";
+  $("erreur-source").hidden = true;
+  try {
+    const r = await fetch("/api/info", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source, cookies_navigateur: $("cookies").value }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erreur || "analyse impossible");
+    afficherVideo(d);
+  } catch (e) {
+    $("erreur-source").textContent = e.message; $("erreur-source").hidden = false;
+  } finally {
+    $("btn-analyser").disabled = false; $("btn-analyser").textContent = "Analyser";
+  }
+});
+
+function afficherVideo(d) {
+  info = d;
+  $("titre").textContent = d.titre;
+  const bouts = [d.site === "fichier" ? "fichier local" : d.site];
+  if (d.duree != null) bouts.push(fmt(d.duree, false)); else bouts.push("durée inconnue");
+  if (d.hauteur_max) bouts.push("jusqu'à " + d.hauteur_max + "p");
+  $("sous-titre").textContent = bouts.join(" — ");
+
+  // Début/fin : le ?t= de l'URL si présent, sinon tout.
+  debut = instantDepuisUrl($("source").value) || instantDepuisUrl(d.source) || 0;
+  fin = d.duree || debut + 60;
+  if (fin <= debut) { debut = 0; fin = d.duree || 60; }
+  majTemps();
+
+  // Chapitres sous la frise.
+  const ch = $("chapitres"); ch.innerHTML = "";
+  if (d.duree && d.chapitres && d.chapitres.length) {
+    d.chapitres.forEach(c => {
+      const s = document.createElement("span");
+      s.style.flex = String(c.fin - c.debut);
+      s.title = c.titre + " (" + fmt(c.debut, false) + " → " + fmt(c.fin, false) + ")";
+      s.onclick = () => { debut = c.debut; fin = c.fin; majTemps(); };
+      ch.appendChild(s);
+    });
+  }
+
+  // Lecteur : YouTube intégré quand c'est possible, sinon la vignette.
+  const lecteur = $("lecteur"); lecteur.innerHTML = "";
+  const youtube = d.site === "youtube" && d.identifiant;
+  ["btn-debut-ici", "btn-fin-ici", "btn-apercu", "aide-touches"].forEach(id => $(id).hidden = !youtube);
+  $("tete").style.display = youtube ? "block" : "none";
+  player = null;
+  if (youtube) {
+    const div = document.createElement("div"); div.id = "yt"; lecteur.appendChild(div);
+    chargerYouTube(() => {
+      player = new YT.Player("yt", { videoId: d.identifiant, playerVars: { start: Math.floor(debut), rel: 0, modestbranding: 1 } });
+    });
+  } else if (d.miniature) {
+    const img = document.createElement("img"); img.src = d.miniature; img.alt = ""; lecteur.appendChild(img);
+  }
+  lecteur.style.display = (youtube || d.miniature) ? "" : "none";
+  $("video").classList.add("visible");
+  $("erreur-extraire").hidden = true;
+}
+
+function instantDepuisUrl(url) {
+  try {
+    const p = new URL(url).searchParams;
+    const t = p.get("t") || p.get("start");
+    return t ? parseTimecode(t) : null;
+  } catch (e) { return null; }
+}
+
+/* API IFrame YouTube, chargée une seule fois, à la demande. */
+let ytPret = false, ytAttente = [];
+function chargerYouTube(cb) {
+  if (ytPret) return cb();
+  ytAttente.push(cb);
+  if (document.getElementById("yt-api")) return;
+  const s = document.createElement("script"); s.id = "yt-api"; s.src = "https://www.youtube.com/iframe_api";
+  document.head.appendChild(s);
+}
+window.onYouTubeIframeAPIReady = () => { ytPret = true; ytAttente.forEach(f => f()); ytAttente = []; };
+
+/* ==================================================================
+   2. Début / fin : champs, frise, lecteur — une seule source de vérité.
+   ================================================================== */
+function majTemps() {
+  const duree = info && info.duree;
+  if (duree) { debut = Math.min(Math.max(0, debut), duree); fin = Math.min(Math.max(0, fin), duree); }
+  if (fin < debut) [debut, fin] = [fin, debut];
+  if (document.activeElement !== $("debut")) $("debut").value = fmt(debut);
+  if (document.activeElement !== $("fin")) $("fin").value = fmt(fin);
+  $("duree").textContent = fmt(fin - debut);
+  const pct = s => duree ? (100 * s / duree) + "%" : "0%";
+  $("rep-debut").style.left = pct(debut); $("rep-debut").dataset.tc = fmt(debut, false);
+  $("rep-fin").style.left = pct(fin);     $("rep-fin").dataset.tc = fmt(fin, false);
+  $("choisi").style.left = pct(debut);    $("choisi").style.width = pct(fin - debut);
+}
+["debut", "fin"].forEach(id => {
+  const lire = () => {
+    try { const v = parseTimecode($(id).value); if (id === "debut") debut = v; else fin = v; $(id).style.borderColor = ""; majTemps(); }
+    catch (e) { $(id).style.borderColor = "var(--coupe)"; }
+  };
+  $(id).addEventListener("change", lire);
+  $(id).addEventListener("blur", () => { lire(); $(id).value = fmt(id === "debut" ? debut : fin); });
+  $(id).addEventListener("keydown", ev => { if (ev.key === "Enter") { ev.preventDefault(); $(id).blur(); } });
+});
+
+/* Glissement des repères sur la frise (pointer events, souris et tactile). */
+function brancherRepere(el, quel) {
+  const frise = $("frise");
+  const depuisX = x => {
+    const r = frise.getBoundingClientRect();
+    return Math.min(1, Math.max(0, (x - r.left) / r.width)) * (info.duree || 0);
+  };
+  el.addEventListener("pointerdown", ev => {
+    if (!info || !info.duree) return;
+    el.setPointerCapture(ev.pointerId); ev.preventDefault();
+    const bouger = e => { const v = depuisX(e.clientX); if (quel === "debut") debut = Math.min(v, fin - 0.05); else fin = Math.max(v, debut + 0.05); majTemps(); };
+    const lacher = () => { el.removeEventListener("pointermove", bouger); el.removeEventListener("pointerup", lacher); };
+    el.addEventListener("pointermove", bouger); el.addEventListener("pointerup", lacher);
+  });
+  // Flèches au clavier : ±1 s, ±0,04 s (une image) avec Maj.
+  el.addEventListener("keydown", ev => {
+    const pas = ev.shiftKey ? 0.04 : 1;
+    if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
+      const d = ev.key === "ArrowLeft" ? -pas : pas;
+      if (quel === "debut") debut += d; else fin += d;
+      majTemps(); ev.preventDefault();
+    }
+  });
+}
+brancherRepere($("rep-debut"), "debut");
+brancherRepere($("rep-fin"), "fin");
+// Clic sur la piste : déplace le repère le plus proche.
+$("frise").addEventListener("pointerdown", ev => {
+  if (!info || !info.duree || ev.target.classList.contains("repere")) return;
+  const r = $("frise").getBoundingClientRect();
+  const v = (ev.clientX - r.left) / r.width * info.duree;
+  if (Math.abs(v - debut) < Math.abs(v - fin)) debut = Math.min(v, fin - 0.05); else fin = Math.max(v, debut + 0.05);
+  majTemps();
+});
+
+/* Boutons « Ici » et touches I / O : prendre la position du lecteur. */
+const positionLecteur = () => (player && player.getCurrentTime) ? player.getCurrentTime() : null;
+$("btn-debut-ici").onclick = () => { const t = positionLecteur(); if (t != null) { debut = t; if (fin <= debut) fin = Math.min(info.duree, debut + 10); majTemps(); } };
+$("btn-fin-ici").onclick = () => { const t = positionLecteur(); if (t != null) { fin = t; if (debut >= fin) debut = Math.max(0, fin - 10); majTemps(); } };
+document.addEventListener("keydown", ev => {
+  if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
+  if (ev.key === "i" || ev.key === "I") $("btn-debut-ici").click();
+  if (ev.key === "o" || ev.key === "O") $("btn-fin-ici").click();
+});
+
+/* Lire l'extrait dans le lecteur : saute au début, s'arrête à la fin. */
+$("btn-apercu").onclick = () => {
+  if (!player) return;
+  clearInterval(apercuTimer);
+  player.seekTo(debut, true); player.playVideo();
+  apercuTimer = setInterval(() => {
+    const t = player.getCurrentTime();
+    $("tete").style.left = (100 * t / info.duree) + "%";
+    if (t >= fin) { player.pauseVideo(); clearInterval(apercuTimer); }
+  }, 100);
+};
+// Tête de lecture visible aussi pendant une lecture manuelle.
+setInterval(() => { if (player && player.getCurrentTime && info && info.duree) $("tete").style.left = (100 * player.getCurrentTime() / info.duree) + "%"; }, 250);
+
+/* ==================================================================
+   3. Extraire : envoie le travail, puis la liste se met à jour toute seule.
+   ================================================================== */
+$("btn-extraire").onclick = async () => {
+  if (!info) return;
+  $("erreur-extraire").hidden = true;
+  const corps = {
+    source: info.source, debut: debut, fin: fin, mode: modeChoisi(),
+    hauteur_max: $("hauteur").value ? +$("hauteur").value : null,
+    encodeur: $("encodeur").value, cookies_navigateur: $("cookies").value || null,
+  };
+  const r = await fetch("/api/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(corps) });
+  const d = await r.json();
+  if (!r.ok) { $("erreur-extraire").textContent = d.erreur; $("erreur-extraire").hidden = false; return; }
+  rafraichir();
+};
+
+/* Liste des travaux : interrogée chaque seconde tant qu'un travail tourne. */
+async function rafraichir() {
+  const travaux = await fetch("/api/jobs").then(r => r.json());
+  const ul = $("travaux"); ul.innerHTML = "";
+  $("vide").hidden = travaux.length > 0;
+  for (const t of travaux) {
+    const li = document.createElement("li");
+    const etats = { en_attente: "en attente", en_cours: t.message || "en cours", termine: "terminé", erreur: "échec" };
+    const d1 = typeof t.debut === "number" ? fmt(t.debut, false) : (t.debut || "0:00");
+    const d2 = typeof t.fin === "number" ? fmt(t.fin, false) : (t.fin || "fin");
+    li.innerHTML = `
+      <div><div class="nom"></div><div class="detail">${d1} → ${d2} · ${t.mode}</div></div>
+      <div class="etat ${t.statut}"></div>`;
+    li.querySelector(".nom").textContent = t.nom_fichier || t.titre || t.source;
+    li.querySelector(".etat").textContent = etats[t.statut];
+    if (t.statut === "en_cours" || t.statut === "en_attente") {
+      const barre = document.createElement("div");
+      barre.className = "barre" + (t.progression == null ? " attente" : "");
+      barre.innerHTML = `<i style="width:${Math.round((t.progression || 0) * 100)}%"></i>`;
+      li.appendChild(barre);
+    }
+    if (t.statut === "termine") {
+      const b = document.createElement("div"); b.className = "boutons";
+      b.innerHTML = `<button type="button" class="petit">Ouvrir le dossier</button><button type="button" class="petit">Télécharger</button>`;
+      const [ouvrir, telecharger] = b.querySelectorAll("button");
+      ouvrir.onclick = () => fetch(`/api/jobs/${t.id}/dossier`, { method: "POST" });
+      telecharger.onclick = () => { location.href = `/fichier/${t.id}`; };
+      li.appendChild(b);
+    }
+    if (t.statut === "erreur") {
+      const p = document.createElement("div"); p.className = "msg-erreur"; p.textContent = t.erreur; li.appendChild(p);
+    }
+    ul.appendChild(li);
+  }
+  const actif = travaux.some(t => t.statut === "en_cours" || t.statut === "en_attente");
+  clearTimeout(rafraichir.timer);
+  if (actif) rafraichir.timer = setTimeout(rafraichir, 1000);
+}
+rafraichir();
+</script>
+</body>
+</html>

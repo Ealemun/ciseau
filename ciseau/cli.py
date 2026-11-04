@@ -7,6 +7,7 @@ Exemples :
     ciseau clip video.mp4 0:10 0:25 --rapide
     ciseau clip "https://…" 10:00 12:00 --audio -o refrain.m4a
     ciseau info "https://www.youtube.com/watch?v=XXXX"
+    ciseau ui                                                  # interface web locale
 
 Bibliothèque standard uniquement (argparse) pour une installation sans friction.
 """
@@ -60,6 +61,14 @@ def _construire_parseur() -> argparse.ArgumentParser:
     i.add_argument("--cookies-navigateur", metavar="NAV")
     i.add_argument("--cookies", type=Path, metavar="FICHIER")
     i.add_argument("-v", "--verbeux", action="store_true")
+
+    # --- ciseau ui ---------------------------------------------------------
+    u = sous.add_parser("ui", help="ouvrir l'interface web locale dans le navigateur")
+    u.add_argument("-p", "--port", type=int, default=8765, help="port d'écoute (défaut : 8765)")
+    u.add_argument("-d", "--dossier", type=Path, default=Path("extraits"),
+                   help="dossier des extraits (défaut : ./extraits)")
+    u.add_argument("--sans-navigateur", action="store_true", help="ne pas ouvrir le navigateur")
+    u.add_argument("-v", "--verbeux", action="store_true", help="journal des requêtes HTTP")
     return p
 
 
@@ -129,10 +138,19 @@ def _cmd_info(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_ui(args: argparse.Namespace) -> int:
+    from . import serveur  # import tardif : inutile pour clip/info
+
+    serveur.lancer(port=args.port, dossier_sortie=args.dossier,
+                   ouvrir_navigateur=not args.sans_navigateur, verbeux=args.verbeux)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _construire_parseur().parse_args(argv)
+    commandes = {"clip": _cmd_clip, "info": _cmd_info, "ui": _cmd_ui}
     try:
-        return _cmd_clip(args) if args.commande == "clip" else _cmd_info(args)
+        return commandes[args.commande](args)
     except (TimecodeError, FileNotFoundError, ffmpeg.FFmpegIntrouvable, RuntimeError) as exc:
         print(f"✘ {exc}", file=sys.stderr)
         return 1

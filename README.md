@@ -29,7 +29,17 @@ pip install -e .[dev]
 
 YouTube change souvent : si un téléchargement échoue, mettez d'abord yt-dlp à jour (`pip install -U yt-dlp`).
 
-## Utilisation
+## Interface
+
+```
+ciseau ui
+```
+
+Ouvre l'interface dans le navigateur (http://127.0.0.1:8765). Colle un lien, pose le début et la fin sur la frise, en tapant les timecodes, ou en regardant la vidéo YouTube intégrée avec les touches **I** (début) et **O** (fin). Les extraits apparaissent dans la liste avec leur progression ; un bouton ouvre le dossier ou télécharge le fichier. Tout tourne en local, rien ne quitte la machine.
+
+Options : `--port`, `-d DOSSIER` pour le dossier des extraits, `--sans-navigateur`.
+
+## Ligne de commande
 
 ```
 ciseau clip SOURCE [DEBUT] [FIN] [options]
@@ -80,6 +90,8 @@ ciseau/
   nommage.py     noms de fichiers portables
   pipeline.py    orchestration : extraire(source, debut, fin, options)
   cli.py         ligne de commande
+  serveur.py     API JSON locale (bibliothèque standard) + file de travaux
+  ui/index.html  interface web, un seul fichier sans build
 ```
 
 `pipeline.extraire()` est le point d'entrée unique : tout client futur (API web, extension navigateur) s'y branche.
@@ -94,7 +106,7 @@ Les tests de découpe génèrent une vidéo synthétique avec ffmpeg ; aucun acc
 
 ## Feuille de route
 
-- API locale (FastAPI) et interface web avec frise de vignettes
+- Frise de vignettes (storyboard YouTube) pour viser sans lire
 - Extension navigateur : touches I / O pour poser début et fin en regardant la vidéo
 - « Smart cut » : réencodage des seules bordures, copie du milieu
 - Extraits multiples en une passe, découpe par chapitres, recherche dans les sous-titres
