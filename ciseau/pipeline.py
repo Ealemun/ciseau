@@ -6,8 +6,9 @@ extension navigateur demain) : `extraire(source, debut, fin, options)`.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import cutter, downloader, resolver
@@ -27,6 +28,11 @@ class Resultat:
     fin: float
     mode: str
     decalage_debut: float | None = None  # mode rapide : rab avant le début (s), si connu
+    # Comment ça s'est passé, pour comprendre une lenteur :
+    #   methode        "segments" (rapide), "yt-dlp" (repli, plus lent) ou "ffmpeg" (fichier/lien direct)
+    #   analyse, telechargement, decoupe, total : durées en secondes
+    #   octets         octets téléchargés ; repli : pourquoi la méthode rapide a été écartée
+    rapport: dict = field(default_factory=dict)
 
 
 def extraire(
@@ -45,9 +51,12 @@ def extraire(
     """
     options = options or Options()
     dire = sur_message or (lambda _texte: None)
+    rapport: dict = {}
+    t0 = time.monotonic()
 
     dire("analyse de la source…")
     info = resolver.resoudre(source, options)
+    rapport["analyse"] = time.monotonic() - t0
 
     # Début implicite depuis l'URL (lien YouTube copié "à cet instant").
     if debut is None:
@@ -68,17 +77,22 @@ def extraire(
             / nom_fichier_extrait(info, debut_s, fin_s, EXTENSION_PAR_MODE[options.mode], options.mode)
         )
         dire(f"découpe ({options.mode})…")
+        rapport["methode"] = "ffmpeg"
+        t1 = time.monotonic()
         fichier = cutter.decouper(
             info.source, debut_s, fin_s, destination,
             mode=options.mode, encodeur=options.encodeur, sur_progression=sur_progression,
         )
+        rapport["decoupe"] = time.monotonic() - t1
         # Le rab du mode rapide n'est mesuré que pour un fichier local : sur un
         # lien distant, il faudrait relire le flux jusqu'au début demandé.
         decalage = (cutter.decalage_image_cle(info.source, debut_s)
                     if options.mode == "rapide" and info.est_fichier else None)
     else:
-        fichier = downloader.telecharger_extrait(info, debut_s, fin_s, options, sur_message=dire)
+        fichier = downloader.telecharger_extrait(info, debut_s, fin_s, options, sur_message=dire,
+                                                 sur_progression=sur_progression, rapport=rapport)
         decalage = None  # inconnu sans analyser le flux distant
 
+    rapport["total"] = time.monotonic() - t0
     return Resultat(fichier=fichier, info=info, debut=debut_s, fin=fin_s, mode=options.mode,
-                    decalage_debut=decalage)
+                    decalage_debut=decalage, rapport=rapport)

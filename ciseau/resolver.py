@@ -9,6 +9,8 @@
 from __future__ import annotations
 
 import re
+import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -115,6 +117,60 @@ def _options_ytdlp(options: Options) -> dict:
     return params
 
 
+# ---------------------------------------------------------------------------
+# Cache des métadonnées yt-dlp
+# ---------------------------------------------------------------------------
+# Interroger YouTube coûte plusieurs secondes (page, API, résolution des défis
+# JavaScript). Sans cache, un même extrait le faisait deux fois (analyse, puis
+# téléchargement), trois avec l'interface. On garde donc le résultat brut un
+# moment. Les adresses de téléchargement de YouTube expirent au bout de ~6 h :
+# 30 minutes laissent une marge confortable.
+
+DUREE_CACHE = 30 * 60  # secondes
+
+_cache: dict[tuple, tuple[float, dict]] = {}
+_verrous_cache: dict[tuple, threading.Lock] = {}
+_verrou_global = threading.Lock()
+
+
+def _cle_cache(source: str, options: Options) -> tuple:
+    # Les cookies changent ce que le site renvoie : ils font partie de la clé.
+    return (source.strip(), options.cookies_navigateur, str(options.cookies_fichier or ""))
+
+
+def infos_brutes(source: str, options: Options | None = None, rafraichir: bool = False) -> dict:
+    """Métadonnées yt-dlp complètes (dont la liste des formats et leurs URL), avec cache.
+
+    Deux travaux simultanés sur la même vidéo n'interrogent le site qu'une fois :
+    le second attend le résultat du premier (un verrou par vidéo).
+    """
+    options = options or Options()
+    cle = _cle_cache(source, options)
+    with _verrou_global:
+        verrou = _verrous_cache.setdefault(cle, threading.Lock())
+    with verrou:
+        en_cache = _cache.get(cle)
+        if en_cache and not rafraichir and time.time() - en_cache[0] < DUREE_CACHE:
+            return en_cache[1]
+
+        import yt_dlp  # type: ignore[import-not-found]  # import paresseux : module lourd
+
+        with yt_dlp.YoutubeDL(_options_ytdlp(options)) as ydl:
+            info = ydl.extract_info(source, download=False)
+        if info is None:
+            raise RuntimeError(f"yt-dlp n'a rien trouvé pour {source}")
+        # Si malgré noplaylist on reçoit une liste, on prend la première entrée.
+        if info.get("_type") == "playlist" and info.get("entries"):
+            info = info["entries"][0]
+        _cache[cle] = (time.time(), info)
+        return info
+
+
+def oublier(source: str, options: Options | None = None) -> None:
+    """Retire une vidéo du cache (par exemple quand ses adresses ont expiré)."""
+    _cache.pop(_cle_cache(source, options or Options()), None)
+
+
 def resoudre(source: str, options: Options | None = None) -> MediaInfo:
     """Décrit la source sans rien télécharger."""
     options = options or Options()
@@ -135,16 +191,8 @@ def resoudre(source: str, options: Options | None = None) -> MediaInfo:
             duree = None
         return MediaInfo(source=source, titre=nom, duree=duree, site="direct")
 
-    # Import paresseux : yt-dlp est lourd à charger et inutile pour un fichier local.
-    import yt_dlp  # type: ignore[import-not-found]
-
-    with yt_dlp.YoutubeDL(_options_ytdlp(options)) as ydl:
-        info = ydl.extract_info(source, download=False)
-    if info is None:
-        raise RuntimeError(f"yt-dlp n'a rien trouvé pour {source}")
-    # Si malgré noplaylist on reçoit une liste, on prend la première entrée.
-    if info.get("_type") == "playlist" and info.get("entries"):
-        info = info["entries"][0]
+    # Page vidéo (YouTube, Twitch…) : yt-dlp, via le cache.
+    info = infos_brutes(source, options)
 
     chapitres = [
         Chapitre(c.get("title", ""), float(c["start_time"]), float(c["end_time"]))
