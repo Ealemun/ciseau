@@ -96,3 +96,20 @@ def extraire(
     rapport["total"] = time.monotonic() - t0
     return Resultat(fichier=fichier, info=info, debut=debut_s, fin=fin_s, mode=options.mode,
                     decalage_debut=decalage, rapport=rapport)
+
+
+def resumer(rapport: dict) -> str:
+    """Résumé d'une ligne du rapport, pour comprendre où le temps est passé.
+
+    Exemple : "segments, 31,3 Mo — analyse 2,1 s · téléchargement 3,4 s · découpe 1,2 s"
+    """
+    tete = rapport.get("methode", "?")
+    if rapport.get("octets"):
+        tete += f", {rapport['octets'] / 1e6:.1f} Mo".replace(".", ",")
+    etapes = [(nom, rapport[cle]) for cle, nom in
+              (("analyse", "analyse"), ("telechargement", "téléchargement"), ("decoupe", "découpe"))
+              if rapport.get(cle) is not None]
+    texte = tete + " — " + " · ".join(f"{nom} {duree:.1f} s".replace(".", ",") for nom, duree in etapes)
+    if rapport.get("repli"):
+        texte += f" (méthode rapide écartée : {rapport['repli']})"
+    return texte

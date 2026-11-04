@@ -9,6 +9,7 @@ Routes :
     GET  /                 -> la page (ui/index.html)
     POST /api/info         {source, cookies_navigateur?}      -> MediaInfo
     POST /api/jobs         {source, debut, fin, mode, ...}    -> job créé
+    POST /api/lot          {texte, mode, ...}                 -> un job par ligne (voir lot.py)
     GET  /api/jobs         -> tous les travaux, du plus récent au plus ancien
     GET  /api/jobs/<id>    -> un travail
     GET  /fichier/<id>     -> télécharge le fichier produit par ce travail
@@ -32,7 +33,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-from . import __version__, pipeline, resolver
+from . import __version__, lot, pipeline, resolver
 from .options import Options
 
 DOSSIER_UI = Path(__file__).parent / "ui"
@@ -57,20 +58,33 @@ class Travail:
     nom_fichier: str | None = None
     erreur: str | None = None
     cree_le: float = field(default_factory=time.time)
+    commence_le: float | None = None
     termine_le: float | None = None
     options: dict = field(default_factory=dict)  # options sérialisables (hauteur, cookies…)
+    rapport: dict = field(default_factory=dict)  # méthode, durées des étapes, octets (voir pipeline.Resultat)
+
+
+PARALLELES_DEFAUT = 3
 
 
 class FileDeTravaux:
-    """File FIFO + un thread ouvrier qui exécute pipeline.extraire()."""
+    """File FIFO + plusieurs threads ouvriers qui exécutent pipeline.extraire().
 
-    def __init__(self, dossier_sortie: Path) -> None:
+    `paralleles` extraits sont traités en même temps : pendant que l'un
+    télécharge, un autre découpe, un troisième interroge YouTube… Au-delà de
+    3 ou 4, on gagne peu (la connexion ou le processeur saturent) et on risque
+    d'attirer l'attention de YouTube, qui bride les adresses trop gourmandes.
+    """
+
+    def __init__(self, dossier_sortie: Path, paralleles: int = PARALLELES_DEFAUT) -> None:
         self.dossier_sortie = dossier_sortie
+        self.paralleles = max(1, paralleles)
         self._travaux: dict[str, Travail] = {}
         self._ordre: list[str] = []
         self._file: queue.Queue[str] = queue.Queue()
         self._verrou = threading.Lock()
-        threading.Thread(target=self._boucle, name="ciseau-ouvrier", daemon=True).start()
+        for n in range(self.paralleles):
+            threading.Thread(target=self._boucle, name=f"ciseau-ouvrier-{n + 1}", daemon=True).start()
 
     # -- API publique --------------------------------------------------------
 
@@ -97,6 +111,17 @@ class FileDeTravaux:
         self._file.put(travail.id)
         return travail
 
+    def ajouter_lot(self, donnees: dict) -> list[Travail]:
+        """Ajoute un travail par ligne du texte `donnees["texte"]` (voir lot.py).
+
+        Les autres clés (mode, hauteur_max…) s'appliquent à toutes les lignes.
+        Rien n'est ajouté si une seule ligne est illisible.
+        """
+        lignes = lot.lire(str(donnees.get("texte") or ""))
+        communs = {k: v for k, v in donnees.items() if k != "texte"}
+        return [self.ajouter({**communs, "source": l.source, "debut": l.debut, "fin": l.fin})
+                for l in lignes]
+
     def tous(self) -> list[dict]:
         with self._verrou:
             return [asdict(self._travaux[i]) for i in reversed(self._ordre)]
@@ -116,7 +141,7 @@ class FileDeTravaux:
             self._executer(travail)
 
     def _executer(self, t: Travail) -> None:
-        t.statut, t.message = "en_cours", "démarrage…"
+        t.statut, t.message, t.commence_le = "en_cours", "démarrage…", time.time()
         options = Options(
             mode=t.mode,  # type: ignore[arg-type]
             dossier_sortie=self.dossier_sortie,
@@ -137,6 +162,7 @@ class FileDeTravaux:
             t.titre = resultat.info.titre
             t.fichier = str(resultat.fichier)
             t.nom_fichier = resultat.fichier.name
+            t.rapport = resultat.rapport
             t.statut, t.message, t.progression = "termine", "terminé", 1.0
         except Exception as exc:  # noqa: BLE001 — on veut tout remonter à l'interface
             t.statut, t.erreur, t.message = "erreur", str(exc), "échec"
@@ -263,7 +289,8 @@ class Gestionnaire(BaseHTTPRequestHandler):
         if chemin in ("/", "/index.html"):
             self._fichier(DOSSIER_UI / "index.html")
         elif chemin == "/api/version":
-            self._json({"version": __version__, "dossier": str(self.server.file.dossier_sortie)})
+            self._json({"version": __version__, "dossier": str(self.server.file.dossier_sortie),
+                        "paralleles": self.server.file.paralleles})
         elif chemin == "/api/jobs":
             self._json(self.server.file.tous())
         elif chemin.startswith("/api/jobs/"):
@@ -291,6 +318,9 @@ class Gestionnaire(BaseHTTPRequestHandler):
             elif chemin == "/api/jobs":
                 travail = self.server.file.ajouter(self._lire_json())
                 self._json(asdict(travail), 201)
+            elif chemin == "/api/lot":
+                travaux = self.server.file.ajouter_lot(self._lire_json())
+                self._json([asdict(t) for t in travaux], 201)
             elif chemin.startswith("/api/jobs/") and chemin.endswith("/dossier"):
                 t = self.server.file.un(chemin.split("/")[3])
                 if t and t.fichier:
@@ -309,9 +339,10 @@ class ServeurCiseau(ThreadingHTTPServer):
 
     daemon_threads = True
 
-    def __init__(self, hote: str, port: int, dossier_sortie: Path, verbeux: bool = False) -> None:
+    def __init__(self, hote: str, port: int, dossier_sortie: Path, verbeux: bool = False,
+                 paralleles: int = PARALLELES_DEFAUT) -> None:
         super().__init__((hote, port), Gestionnaire)
-        self.file = FileDeTravaux(dossier_sortie)
+        self.file = FileDeTravaux(dossier_sortie, paralleles)
         self.verbeux = verbeux
 
     @property
@@ -320,11 +351,12 @@ class ServeurCiseau(ThreadingHTTPServer):
 
 
 def lancer(port: int = 8765, dossier_sortie: Path = Path("extraits"),
-           ouvrir_navigateur: bool = True, verbeux: bool = False) -> None:
+           ouvrir_navigateur: bool = True, verbeux: bool = False,
+           paralleles: int = PARALLELES_DEFAUT) -> None:
     """Démarre le serveur (bloquant) et ouvre le navigateur sur l'interface."""
-    serveur = ServeurCiseau("127.0.0.1", port, dossier_sortie.resolve(), verbeux)
+    serveur = ServeurCiseau("127.0.0.1", port, dossier_sortie.resolve(), verbeux, paralleles)
     print(f"ciseau {__version__} — interface sur {serveur.url}  (Ctrl+C pour arrêter)")
-    print(f"extraits rangés dans {serveur.file.dossier_sortie}")
+    print(f"extraits rangés dans {serveur.file.dossier_sortie}, {serveur.file.paralleles} à la fois")
     if ouvrir_navigateur:
         import webbrowser
         threading.Timer(0.4, lambda: webbrowser.open(serveur.url)).start()
