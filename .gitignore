@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+
+# Fichiers produits par l'outil (extraits téléchargés, téléchargements partiels)
+extraits/
+*.part
+*.ytdl
+*.temp.mp4
+
+# Cookies exportés : ne jamais versionner
+cookies.txt
+
+# Éditeurs / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
