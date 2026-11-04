@@ -30,6 +30,18 @@ winget install DenoLand.Deno
 
 **Ferme ensuite PowerShell** : les nouveaux programmes ne sont visibles que dans une fenêtre ouverte après leur installation.
 
+> **Variante avec `make`** (macOS, Linux, ou Windows si tu préfères) : le `Makefile` du projet fait tout ça d'un coup.
+> Sous Windows, installe d'abord make (`winget install ezwinports.make`) et rouvre PowerShell. Puis, dans le dossier du projet :
+>
+> ```
+> make prerequis     # installe ffmpeg et deno, puis ciseau, puis vérifie
+> make verifier      # à tout moment : liste ce qui est en place ou manque
+> make ui            # lance l'interface
+> make help          # toutes les commandes (maj, test, nettoyer…)
+> ```
+>
+> Si `make prerequis` s'arrête après l'installation de ffmpeg et deno, rouvre le terminal et relance-le.
+
 Si tu n'as pas encore le projet sur ton disque :
 
 ```
@@ -157,6 +169,8 @@ ciseau/
   ui/index.html  interface web, un seul fichier sans build
 extension/       extension Chrome/Edge/Brave (Manifest V3), sans build
 ciseau.bat       lanceur Windows
+Makefile         prérequis et commandes courantes (make help)
+scripts/         petits outils appelés par le Makefile
 ```
 
 `pipeline.extraire()` est le point d'entrée unique : la ligne de commande, le serveur et donc l'interface et l'extension passent tous par lui.
