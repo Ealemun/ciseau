@@ -105,3 +105,49 @@ def decalage_image_cle(source: str | Path, debut: float) -> float | None:
     if not precedentes:
         return None
     return debut - max(precedentes)
+
+
+def decouper_flux(
+    audio: Path,
+    origine_audio: float,
+    debut: float,
+    fin: float,
+    destination: str | Path,
+    mode: Mode = "precis",
+    video: Path | None = None,
+    origine_video: float = 0.0,
+    encodeur: str = ffmpeg.ENCODEUR_DEFAUT,
+    sur_progression: ffmpeg.Progression | None = None,
+) -> Path:
+    """Assemble et découpe des flux vidéo et audio séparés, déjà téléchargés.
+
+    Les fichiers ne contiennent qu'un morceau de la vidéo d'origine : `origine_*`
+    donne l'instant d'origine où chacun commence. Pour couper à `debut` dans la
+    vidéo d'origine, on se place donc à `debut - origine` dans chaque fichier.
+    (Voir segments.py : ces fichiers viennent du téléchargement par segments.)
+    """
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    duree_extrait = fin - debut
+
+    args: list[str] = ["-y"]
+    if video is not None and mode != "audio":
+        # Une position de recherche (-ss) par entrée : chacune a sa propre origine.
+        args += ["-ss", f"{max(0.0, debut - origine_video):.3f}", "-i", str(video)]
+    args += ["-ss", f"{max(0.0, debut - origine_audio):.3f}", "-i", str(audio)]
+    args += ["-t", f"{duree_extrait:.3f}"]
+
+    if mode == "audio" or video is None:
+        # AAC copié tel quel : aucune perte, et l'audio se coupe au paquet près (~20 ms).
+        args += ["-map", "0:a:0", "-vn", "-c:a", "copy"]
+    else:
+        args += ["-map", "0:v:0", "-map", "1:a:0"]
+        if mode == "rapide":
+            # Comme decouper() : copie, la vidéo démarre sur l'image-clé précédente.
+            args += ["-c", "copy", "-avoid_negative_ts", "make_zero"]
+        else:
+            args += ffmpeg.args_encodage(encodeur)
+
+    args += ["-movflags", "+faststart", str(destination)]
+    ffmpeg.executer(args, duree_attendue=duree_extrait, sur_progression=sur_progression)
+    return destination

@@ -37,5 +37,10 @@ class Options:
     cookies_navigateur: str | None = None
     cookies_fichier: Path | None = None
 
+    # Connexions simultanées par flux pour le téléchargement par segments
+    # (voir segments.py). 4 suffit à saturer la plupart des connexions sans
+    # attirer l'attention de YouTube.
+    connexions: int = 4
+
     # Affiche les journaux détaillés de yt-dlp/ffmpeg.
     verbeux: bool = False
