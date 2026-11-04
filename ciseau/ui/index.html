@@ -87,6 +87,12 @@ button.petit { padding: 5px 10px; font-size: 14px; }
 .aide { color: var(--encre-2); font-size: 14px; margin: 8px 0 0; }
 .erreur { color: var(--coupe-2); font-size: 14px; margin: 8px 0 0; }
 details summary { cursor: pointer; color: var(--encre-2); font-size: 14px; margin-top: 10px; }
+textarea {
+  display: block; width: 100%; margin-top: 8px; font-family: var(--mono); font-size: 14px; line-height: 1.6;
+  color: var(--encre); background: #fff; border: 1px solid var(--acier); border-radius: var(--rayon); padding: 9px 12px; resize: vertical;
+}
+textarea:focus { outline: 2px solid var(--coupe); outline-offset: 2px; }
+.erreur { white-space: pre-line; }
 .reglages { display: flex; flex-wrap: wrap; gap: 14px 24px; margin-top: 10px; align-items: end; }
 .reglages label, .reglages .reglage { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--encre-2); }
 .reglages label > select, .reglages label > input { color: var(--encre); }
@@ -218,6 +224,15 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--acier);
         </div>
         <p class="aide">Les cookies servent quand YouTube réclame une connexion (« confirmez que vous n'êtes pas un robot »). Le mode rapide démarre sur l'image-clé précédant le début : quelques secondes de rab possibles, rien ne manque.</p>
       </details>
+      <details id="zone-lot">
+        <summary>Plusieurs extraits d'un coup</summary>
+        <p class="aide">Une ligne par extrait : le lien, puis le début et la fin. Sans fin, l'extrait va jusqu'au bout ; un <code>-</code> à la place du début prend le <code>?t=</code> du lien. Les réglages ci-dessus s'appliquent à tous.</p>
+        <textarea id="lot" rows="6" spellcheck="false" placeholder="https://www.youtube.com/watch?v=AAAA 1:23 1:45
+https://youtu.be/BBBB?t=90 - 2:30
+https://www.twitch.tv/videos/123 1:02:00 1:03:30"></textarea>
+        <div class="actions"><button type="button" class="coupe" id="btn-lot">Ajouter à la file</button><span class="aide" id="aide-lot"></span></div>
+        <p class="erreur" id="erreur-lot" hidden></p>
+      </details>
     </section>
 
     <!-- 2. La vidéo et les repères -->
@@ -318,7 +333,10 @@ function memoriser() {
 const modeChoisi = () => document.querySelector("input[name=mode]:checked").value;
 document.querySelectorAll(".reglages select, input[name=mode]").forEach(el => el.addEventListener("change", memoriser));
 
-fetch("/api/version").then(r => r.json()).then(v => { $("dossier").textContent = v.dossier; });
+fetch("/api/version").then(r => r.json()).then(v => {
+  $("dossier").textContent = v.dossier;
+  if (v.paralleles) $("aide-lot").textContent = `${v.paralleles} extraits traités en même temps.`;
+});
 
 /* ==================================================================
    1. Analyse de la source
@@ -507,6 +525,30 @@ $("btn-extraire").onclick = async () => {
   rafraichir();
 };
 
+/* Plusieurs extraits d'un coup : le serveur lit la liste (ciseau/lot.py) et crée un travail par ligne. */
+$("btn-lot").onclick = async () => {
+  const texte = $("lot").value;
+  $("erreur-lot").hidden = true;
+  if (!texte.trim()) { $("erreur-lot").textContent = "Colle au moins une ligne : lien, début, fin."; $("erreur-lot").hidden = false; return; }
+  $("btn-lot").disabled = true;
+  try {
+    const r = await fetch("/api/lot", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ texte, mode: modeChoisi(),
+        hauteur_max: $("hauteur").value ? +$("hauteur").value : null,
+        encodeur: $("encodeur").value, cookies_navigateur: $("cookies").value || null }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erreur || "liste refusée");
+    $("lot").value = "";
+    $("aide-lot").textContent = `${d.length} extrait(s) ajouté(s) à la file.`;
+    rafraichir();
+  } catch (e) {
+    $("erreur-lot").textContent = e.message; $("erreur-lot").hidden = false;
+  } finally {
+    $("btn-lot").disabled = false;
+  }
+};
+$("lot").addEventListener("input", () => { $("erreur-lot").hidden = true; });
+
 /* Liste des travaux : interrogée chaque seconde tant qu'un travail tourne. */
 async function rafraichir() {
   const travaux = await fetch("/api/jobs").then(r => r.json());
@@ -521,6 +563,19 @@ async function rafraichir() {
       <div><div class="nom"></div><div class="detail">${d1} → ${d2} · ${t.mode}</div></div>
       <div class="etat ${t.statut}"></div>`;
     li.querySelector(".nom").textContent = t.nom_fichier || t.titre || t.source;
+    if (t.statut === "termine" && t.rapport && t.rapport.methode) {
+      // Ex. « segments · 31,3 Mo · 4,2 s », détail des étapes au survol.
+      const r = t.rapport, sec = x => x.toFixed(1).replace(".", ",") + " s";
+      const morceaux = [r.methode === "yt-dlp" ? "yt-dlp (méthode lente)" : r.methode];
+      if (r.octets) morceaux.push((r.octets / 1e6).toFixed(1).replace(".", ",") + " Mo");
+      if (r.total != null) morceaux.push(sec(r.total));
+      const info = document.createElement("span");
+      info.textContent = " · " + morceaux.join(" · ");
+      info.title = [["analyse", "analyse"], ["telechargement", "téléchargement"], ["decoupe", "découpe"]]
+        .filter(([k]) => r[k] != null).map(([k, nom]) => `${nom} : ${sec(r[k])}`).join("\n")
+        + (r.repli ? `\nméthode rapide écartée : ${r.repli}` : "");
+      li.querySelector(".detail").appendChild(info);
+    }
     li.querySelector(".etat").textContent = etats[t.statut];
     if (t.statut === "en_cours" || t.statut === "en_attente") {
       const barre = document.createElement("div");
@@ -532,7 +587,8 @@ async function rafraichir() {
       const b = document.createElement("div"); b.className = "boutons";
       b.innerHTML = `<button type="button" class="petit">Ouvrir le dossier</button><button type="button" class="petit">Télécharger</button>`;
       const [ouvrir, telecharger] = b.querySelectorAll("button");
-      ouvrir.onclick = () => fetch(`/api/jobs/${t.id}/dossier`, { method: "POST" });
+      // Le serveur exige du JSON sur chaque POST (protection contre les autres sites).
+      ouvrir.onclick = () => fetch(`/api/jobs/${t.id}/dossier`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
       telecharger.onclick = () => { location.href = `/fichier/${t.id}`; };
       li.appendChild(b);
     }
