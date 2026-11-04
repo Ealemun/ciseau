@@ -41,6 +41,11 @@ class MediaInfo:
     def est_fichier(self) -> bool:
         return self.site == "fichier"
 
+    @property
+    def decoupe_directe(self) -> bool:
+        """Vrai si ffmpeg peut lire la source lui-même (fichier local ou lien direct)."""
+        return self.site in ("fichier", "direct")
+
 
 _RE_URL = re.compile(r"^[a-z][a-z0-9+.-]*://", re.IGNORECASE)
 
@@ -48,6 +53,25 @@ _RE_URL = re.compile(r"^[a-z][a-z0-9+.-]*://", re.IGNORECASE)
 def est_url(source: str) -> bool:
     """Vrai si `source` ressemble à une URL (schéma http://, https://…)."""
     return bool(_RE_URL.match(source.strip()))
+
+
+# Extensions d'un lien qui pointe directement sur un média (pas sur une page web).
+EXTENSIONS_DIRECTES = {
+    ".mp4", ".m4v", ".mov", ".webm", ".mkv", ".avi", ".ts",
+    ".m3u8", ".mpd",                      # flux HLS / DASH : ffmpeg sait les lire
+    ".mp3", ".m4a", ".aac", ".ogg", ".opus", ".wav", ".flac",
+}
+
+
+def est_lien_direct(url: str) -> bool:
+    """Vrai si l'URL pointe sur un fichier média (ex. https://site.fr/video.mp4?token=…)."""
+    if not est_url(url):
+        return False
+    try:
+        chemin = urlparse(url).path.lower()
+    except ValueError:
+        return False
+    return Path(chemin).suffix in EXTENSIONS_DIRECTES
 
 
 def instant_depuis_url(url: str) -> float | None:
@@ -101,6 +125,15 @@ def resoudre(source: str, options: Options | None = None) -> MediaInfo:
         if not chemin.exists():
             raise FileNotFoundError(chemin)
         return MediaInfo(source=str(chemin), titre=chemin.stem, duree=ffmpeg.duree(chemin))
+
+    # Lien direct vers un média : ffprobe lit la durée à distance, sans yt-dlp.
+    if est_lien_direct(source):
+        nom = Path(urlparse(source).path).stem or "video"
+        try:
+            duree = ffmpeg.duree(source)
+        except Exception:  # noqa: BLE001 — flux en direct ou serveur capricieux
+            duree = None
+        return MediaInfo(source=source, titre=nom, duree=duree, site="direct")
 
     # Import paresseux : yt-dlp est lourd à charger et inutile pour un fichier local.
     import yt_dlp  # type: ignore[import-not-found]

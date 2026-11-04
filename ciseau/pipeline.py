@@ -61,8 +61,8 @@ def extraire(
             raise TimecodeError("durée inconnue : indique un timecode de fin")
         fin_s = info.duree
 
-    if info.est_fichier:
-        # Fichier local : découpe directe.
+    if info.decoupe_directe:
+        # Fichier local ou lien direct vers un média : ffmpeg s'en charge seul.
         destination = options.fichier_sortie or (
             Path(options.dossier_sortie)
             / nom_fichier_extrait(info, debut_s, fin_s, EXTENSION_PAR_MODE[options.mode], options.mode)
@@ -72,7 +72,10 @@ def extraire(
             info.source, debut_s, fin_s, destination,
             mode=options.mode, encodeur=options.encodeur, sur_progression=sur_progression,
         )
-        decalage = cutter.decalage_image_cle(info.source, debut_s) if options.mode == "rapide" else None
+        # Le rab du mode rapide n'est mesuré que pour un fichier local : sur un
+        # lien distant, il faudrait relire le flux jusqu'au début demandé.
+        decalage = (cutter.decalage_image_cle(info.source, debut_s)
+                    if options.mode == "rapide" and info.est_fichier else None)
     else:
         fichier = downloader.telecharger_extrait(info, debut_s, fin_s, options, sur_message=dire)
         decalage = None  # inconnu sans analyser le flux distant

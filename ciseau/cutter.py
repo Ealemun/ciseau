@@ -42,18 +42,31 @@ def decouper(
     """Écrit dans `destination` l'extrait [debut, fin] de `source`. Renvoie le chemin écrit.
 
     `fin` à None = jusqu'à la fin du fichier.
+    `source` peut aussi être une URL de média direct (https://…/video.mp4) :
+    ffmpeg la lit alors à distance, en ne téléchargeant que la zone utile.
     """
-    source = Path(source)
     destination = Path(destination)
-    if not source.exists():
-        raise FileNotFoundError(source)
+    distant = "://" in str(source)
+    if not distant:
+        source = Path(source)
+        if not source.exists():
+            raise FileNotFoundError(source)
     if mode not in MODES:
         raise ValueError(f"mode inconnu : {mode!r} (choix : {', '.join(MODES)})")
 
-    duree_source = ffmpeg.duree(source)
+    try:
+        duree_source: float | None = ffmpeg.duree(source)
+    except Exception:  # noqa: BLE001
+        # Flux distant sans durée connue (direct HLS…) : on fait confiance à `fin`.
+        if not distant or fin is None:
+            raise
+        duree_source = None
     valider_plage(debut, fin, duree_source)
-    # Durée réellement demandée (bornée par la fin du fichier).
-    fin_effective = min(fin, duree_source) if fin is not None else duree_source
+    # Durée réellement demandée (bornée par la fin du fichier quand on la connaît).
+    if fin is None:
+        fin_effective = duree_source
+    else:
+        fin_effective = min(fin, duree_source) if duree_source is not None else fin
     duree_extrait = fin_effective - debut
 
     destination.parent.mkdir(parents=True, exist_ok=True)
