@@ -10,14 +10,21 @@
 # ==========================================================================
 
 # --- Quel Python utiliser ---------------------------------------------------
-# Sous Windows, le lanceur "py" est installé avec Python et évite les
-# faux "python" du Microsoft Store. Ailleurs, python3.
-# Pour forcer un autre Python :  make install PYTHON=python3.12
+# La variable s'appelle CISEAU_PY (et non PYTHON) exprès : beaucoup de machines
+# ont déjà une variable d'environnement PYTHON, parfois avec un chemin contenant
+# des espaces, et make la reprendrait sans guillemets (le chemin serait coupé).
+#
+# Choix par défaut :
+#   - Windows : le lanceur "py -3" s'il fonctionne (installé avec Python depuis
+#     python.org ou winget), sinon "python" tel que trouvé dans le PATH ;
+#   - macOS / Linux : python3.
+# Pour forcer un Python précis (les guillemets protègent les espaces du chemin) :
+#   make install CISEAU_PY='"C:\mon dossier\python.exe"'
 ifeq ($(OS),Windows_NT)
-  PYTHON ?= py -3
+  CISEAU_PY ?= $(if $(shell py -3 --version 2>/dev/null),py -3,python)
   SYSTEME := windows
 else
-  PYTHON ?= python3
+  CISEAU_PY ?= python3
   # uname renvoie Darwin sur macOS, Linux sur Linux.
   SYSTEME := $(if $(filter Darwin,$(shell uname -s)),macos,linux)
 endif
@@ -28,7 +35,7 @@ endif
 .PHONY: help prerequis install-systeme install maj verifier ui test nettoyer
 
 help: ## Affiche cette liste
-	@$(PYTHON) scripts/outils.py aide Makefile
+	@$(CISEAU_PY) scripts/outils.py aide Makefile
 
 prerequis: install-systeme install verifier ## Tout installer puis tout vérifier (à lancer une fois)
 
@@ -49,20 +56,20 @@ endif
 
 # --- Paquets Python -----------------------------------------------------------
 install: ## Installe ciseau et ses dépendances Python (yt-dlp, pytest)
-	$(PYTHON) -m pip install -e ".[dev]"
+	$(CISEAU_PY) -m pip install -e ".[dev]"
 
 maj: ## Met yt-dlp à jour (à faire quand YouTube cesse de marcher)
-	$(PYTHON) -m pip install -U "yt-dlp[default]"
+	$(CISEAU_PY) -m pip install -U "yt-dlp[default]"
 
 # --- Contrôle et usage --------------------------------------------------------
 verifier: ## Vérifie que tous les prérequis sont en place
-	@$(PYTHON) scripts/outils.py verifier
+	@$(CISEAU_PY) scripts/outils.py verifier
 
 ui: ## Lance l'interface (comme ciseau.bat)
-	$(PYTHON) -m ciseau ui
+	$(CISEAU_PY) -m ciseau ui
 
 test: ## Lance les tests
-	$(PYTHON) -m pytest
+	$(CISEAU_PY) -m pytest
 
 nettoyer: ## Supprime les caches (garde le dossier extraits)
-	@$(PYTHON) scripts/outils.py nettoyer
+	@$(CISEAU_PY) scripts/outils.py nettoyer
