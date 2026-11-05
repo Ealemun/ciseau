@@ -26,10 +26,16 @@ LIMITE_YOUTUBE = 10 * 1024 * 1024
 class ServeurDash(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, dossier: Path, debit_bride: int | None = None, port: int = 0):
-        """`debit_bride` : octets/s pour les requêtes longues (None = pas de bridage)."""
+    def __init__(self, dossier: Path, debit_bride: int | None = None, port: int = 0,
+                 tout_brider: bool = False):
+        """`debit_bride` : octets/s pour les requêtes longues (None = pas de bridage).
+
+        `tout_brider` : bride aussi les requêtes courtes (pour simuler une connexion
+        lente, par exemple afin de tester l'annulation pendant un téléchargement).
+        """
         self.dossier = Path(dossier)
         self.debit_bride = debit_bride
+        self.tout_brider = tout_brider
         self.octets_envoyes = 0
         self.requetes: list[str] = []  # valeurs des en-têtes Range reçus ("" = aucun)
         self._verrou = threading.Lock()
@@ -88,7 +94,8 @@ class _Gestionnaire(BaseHTTPRequestHandler):
         self.end_headers()
 
         # Comme YouTube : bridé si pas de plage, plage ouverte, ou plage > 10 Mo.
-        bride = self.server.debit_bride and (not m or not m.group(2) or longueur > LIMITE_YOUTUBE)
+        bride = self.server.debit_bride and (self.server.tout_brider or not m or not m.group(2)
+                                             or longueur > LIMITE_YOUTUBE)
         bloc = 64 * 1024
         with chemin.open("rb") as f:
             f.seek(a)

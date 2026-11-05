@@ -29,6 +29,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import cutter, ffmpeg, resolver, segments
+from .annulation import Annulation, Arret, verifier
 from .cutter import EXTENSION_PAR_MODE
 from .nommage import nom_fichier_extrait
 from .options import Options
@@ -53,6 +54,7 @@ def telecharger_extrait(
     sur_message: Message | None = None,
     sur_progression: Callable[[float], None] | None = None,
     rapport: dict | None = None,
+    arret: Arret | None = None,
 ) -> Path:
     """Télécharge l'extrait [debut, fin] de `info.source` et renvoie le fichier écrit.
 
@@ -74,12 +76,13 @@ def telecharger_extrait(
     destination.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        return _par_segments(info, debut, fin, destination, options, dire, sur_progression, rapport)
+        return _par_segments(info, debut, fin, destination, options, dire, sur_progression, rapport, arret)
     except segments.SegmentsIndisponibles as exc:
         # Pas grave : on passe par yt-dlp. On garde la raison pour l'afficher.
+        # (Une Annulation, elle, n'est pas attrapée ici : elle remonte directement.)
         rapport["repli"] = str(exc)
         dire(f"méthode rapide impossible ({exc}) : passage par yt-dlp, plus lent…")
-    return _par_ytdlp(info, debut, fin, destination, options, dire, rapport)
+    return _par_ytdlp(info, debut, fin, destination, options, dire, rapport, arret)
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +98,7 @@ def _par_segments(
     dire: Message,
     sur_progression: Callable[[float], None] | None,
     rapport: dict,
+    arret: Arret | None = None,
 ) -> Path:
     brut = resolver.infos_brutes(info.source, options)  # en cache depuis l'analyse
     video, audio = segments.choisir_formats(brut, options.mode, options.hauteur_max)
@@ -124,13 +128,15 @@ def _par_segments(
         attente = segments.attente_avant_lecture(video, audio)
         if attente > 0:
             dire(f"YouTube impose une attente de {attente:.0f} s…")
-            time.sleep(attente)
+            # Event.wait sert de pause interruptible : il rend True si l'annulation tombe pendant l'attente.
+            if (arret or threading.Event()).wait(attente):
+                raise Annulation()
         dire("téléchargement des segments…")
 
         def un_flux(fmt: dict, nom: str) -> segments.Plage:
             return segments.telecharger_plage(
                 fmt["url"], segments.entetes_de(fmt), debut, fin, temp / nom,
-                connexions=options.connexions, sur_octets=compter,
+                connexions=options.connexions, sur_octets=compter, arret=arret,
             )
 
         try:
@@ -154,7 +160,7 @@ def _par_segments(
             plage_audio.chemin, plage_audio.origine, debut, fin, destination, mode=options.mode,
             video=plage_video.chemin if plage_video else None,
             origine_video=plage_video.origine if plage_video else 0.0,
-            encodeur=options.encodeur, sur_progression=sur_progression,
+            encodeur=options.encodeur, sur_progression=sur_progression, arret=arret,
         )
         rapport["decoupe"] = time.monotonic() - t1
         return destination
@@ -189,6 +195,7 @@ def _par_ytdlp(
     options: Options,
     dire: Message,
     rapport: dict,
+    arret: Arret | None = None,
 ) -> Path:
     import yt_dlp  # type: ignore[import-not-found]
     from yt_dlp.utils import download_range_func  # type: ignore[import-not-found]
@@ -196,6 +203,9 @@ def _par_ytdlp(
     rapport["methode"] = "yt-dlp"
 
     def hook(d: dict) -> None:
+        # Seul moyen d'interrompre yt-dlp : lever une exception depuis son crochet
+        # de progression. L'annulation prend donc effet à sa prochaine remontée.
+        verifier(arret)
         # ffmpeg (utilisé pour les plages) ne remonte pas de pourcentage à yt-dlp :
         # on se contente des changements d'état.
         if d.get("status") == "finished":
@@ -224,8 +234,14 @@ def _par_ytdlp(
 
     dire("téléchargement de l'extrait (yt-dlp)…")
     t0 = time.monotonic()
+    verifier(arret)
     with yt_dlp.YoutubeDL(params) as ydl:
-        resultat = ydl.extract_info(info.source, download=True)
+        try:
+            resultat = ydl.extract_info(info.source, download=True)
+        except Exception:
+            # yt-dlp peut emballer notre Annulation dans sa propre erreur.
+            verifier(arret)
+            raise
     rapport["telechargement"] = time.monotonic() - t0
 
     # Chemin réel du fichier final (après fusion/post-traitement) : yt-dlp le

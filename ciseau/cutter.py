@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Literal
 
 from . import ffmpeg
+from .annulation import Annulation, Arret
 from .timecode import valider_plage
 
 Mode = Literal["rapide", "precis", "audio"]
@@ -38,6 +39,7 @@ def decouper(
     mode: Mode = "precis",
     encodeur: str = ffmpeg.ENCODEUR_DEFAUT,
     sur_progression: ffmpeg.Progression | None = None,
+    arret: Arret | None = None,
 ) -> Path:
     """Écrit dans `destination` l'extrait [debut, fin] de `source`. Renvoie le chemin écrit.
 
@@ -90,8 +92,17 @@ def decouper(
         args += ["-movflags", "+faststart"]
 
     args.append(str(destination))
-    ffmpeg.executer(args, duree_attendue=duree_extrait, sur_progression=sur_progression)
+    _executer_ou_nettoyer(args, duree_extrait, sur_progression, arret, destination)
     return destination
+
+
+def _executer_ou_nettoyer(args, duree, sur_progression, arret, destination: Path) -> None:
+    """Lance ffmpeg ; en cas d'annulation, supprime le fichier à moitié écrit."""
+    try:
+        ffmpeg.executer(args, duree_attendue=duree, sur_progression=sur_progression, arret=arret)
+    except Annulation:
+        destination.unlink(missing_ok=True)
+        raise
 
 
 def decalage_image_cle(source: str | Path, debut: float) -> float | None:
@@ -118,6 +129,7 @@ def decouper_flux(
     origine_video: float = 0.0,
     encodeur: str = ffmpeg.ENCODEUR_DEFAUT,
     sur_progression: ffmpeg.Progression | None = None,
+    arret: Arret | None = None,
 ) -> Path:
     """Assemble et découpe des flux vidéo et audio séparés, déjà téléchargés.
 
@@ -149,5 +161,5 @@ def decouper_flux(
             args += ffmpeg.args_encodage(encodeur)
 
     args += ["-movflags", "+faststart", str(destination)]
-    ffmpeg.executer(args, duree_attendue=duree_extrait, sur_progression=sur_progression)
+    _executer_ou_nettoyer(args, duree_extrait, sur_progression, arret, destination)
     return destination

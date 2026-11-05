@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import cutter, downloader, resolver
+from .annulation import Arret, verifier
 from .cutter import EXTENSION_PAR_MODE
 from .nommage import nom_fichier_extrait
 from .options import Options
@@ -42,12 +43,16 @@ def extraire(
     options: Options | None = None,
     sur_message: Message | None = None,
     sur_progression: Callable[[float], None] | None = None,
+    arret: Arret | None = None,
+    sur_info: Callable[[resolver.MediaInfo], None] | None = None,
 ) -> Resultat:
     """Produit l'extrait [debut, fin] de `source`.
 
     - `debut` None : on tente le `?t=` de l'URL, sinon 0.
     - `fin` None   : jusqu'à la fin de la vidéo.
     Les timecodes sont acceptés sous forme de texte ("1:23:04") ou de secondes.
+    `arret` : signal d'annulation (voir annulation.py) ; lève Annulation s'il est levé.
+    `sur_info(info)` : appelé dès que la source est analysée (titre, durée connus).
     """
     options = options or Options()
     dire = sur_message or (lambda _texte: None)
@@ -57,6 +62,9 @@ def extraire(
     dire("analyse de la source…")
     info = resolver.resoudre(source, options)
     rapport["analyse"] = time.monotonic() - t0
+    if sur_info:
+        sur_info(info)
+    verifier(arret)  # annulé pendant l'analyse : on s'arrête avant de télécharger
 
     # Début implicite depuis l'URL (lien YouTube copié "à cet instant").
     if debut is None:
@@ -81,7 +89,7 @@ def extraire(
         t1 = time.monotonic()
         fichier = cutter.decouper(
             info.source, debut_s, fin_s, destination,
-            mode=options.mode, encodeur=options.encodeur, sur_progression=sur_progression,
+            mode=options.mode, encodeur=options.encodeur, sur_progression=sur_progression, arret=arret,
         )
         rapport["decoupe"] = time.monotonic() - t1
         # Le rab du mode rapide n'est mesuré que pour un fichier local : sur un
@@ -90,7 +98,8 @@ def extraire(
                     if options.mode == "rapide" and info.est_fichier else None)
     else:
         fichier = downloader.telecharger_extrait(info, debut_s, fin_s, options, sur_message=dire,
-                                                 sur_progression=sur_progression, rapport=rapport)
+                                                 sur_progression=sur_progression, rapport=rapport,
+                                                 arret=arret)
         decalage = None  # inconnu sans analyser le flux distant
 
     rapport["total"] = time.monotonic() - t0

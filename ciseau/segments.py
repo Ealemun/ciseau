@@ -42,6 +42,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
+from .annulation import Annulation
+
 # Taille maximale d'une requête : au-delà, YouTube bride la connexion.
 TAILLE_MORCEAU = 10 * 1024 * 1024
 
@@ -62,18 +64,29 @@ class SegmentsIndisponibles(Exception):
 # Lecture HTTP par plages d'octets
 # ---------------------------------------------------------------------------
 
-def lire_octets(url: str, entetes: dict, debut: int, fin: int) -> bytes:
+BLOC_LECTURE = 64 * 1024  # on vérifie l'annulation tous les 64 Ko reçus
+
+
+def lire_octets(url: str, entetes: dict, debut: int, fin: int,
+                arret: threading.Event | None = None) -> bytes:
     """Renvoie les octets [debut, fin] (bornes incluses) de `url`.
 
     Réessaie quelques fois en cas d'erreur réseau passagère. Un refus (403, 404…)
     lève SegmentsIndisponibles : l'URL n'est pas utilisable ainsi.
+    La lecture se fait par blocs de 64 Ko : si `arret` est levé en cours de
+    route, on abandonne aussitôt (Annulation), même sur une connexion lente.
     """
     requete = urllib.request.Request(url, headers={**entetes, "Range": f"bytes={debut}-{fin}"})
     derniere_erreur: Exception | None = None
     for essai in range(ESSAIS):
         try:
             with urllib.request.urlopen(requete, timeout=30) as reponse:
-                donnees = reponse.read()
+                blocs = []
+                while bloc := reponse.read(BLOC_LECTURE):
+                    if arret is not None and arret.is_set():
+                        raise Annulation()
+                    blocs.append(bloc)
+                donnees = b"".join(blocs)
                 # 200 au lieu de 206 : le serveur ignore les plages et renvoie tout.
                 if reponse.status == 200 and len(donnees) > fin - debut + 1:
                     donnees = donnees[debut:fin + 1]
@@ -205,8 +218,11 @@ def telecharger_plage(
     """Écrit dans `destination` un MP4 couvrant au moins [debut, fin] du flux distant.
 
     `sur_octets(n)` est appelé à chaque morceau reçu (n = octets du morceau),
-    pour afficher une progression. `arret`, s'il est levé, interrompt proprement.
+    pour afficher une progression. `arret`, s'il est levé, interrompt avant le
+    morceau suivant et lève Annulation (qui ne doit pas déclencher de repli).
     """
+    if arret is not None and arret.is_set():
+        raise Annulation()
     index, entete = lire_index(url, entetes)
 
     # Segments qui recouvrent la plage demandée. Une vidéo ne peut démarrer que
@@ -222,8 +238,8 @@ def telecharger_plage(
 
     def recuperer(morceau: tuple[int, int]) -> bytes:
         if arret is not None and arret.is_set():
-            raise SegmentsIndisponibles("interrompu")
-        donnees = lire_octets(url, entetes, *morceau)
+            raise Annulation()
+        donnees = lire_octets(url, entetes, *morceau, arret=arret)
         if len(donnees) != morceau[1] - morceau[0] + 1:
             raise SegmentsIndisponibles("réponse tronquée par le serveur")
         if sur_octets:
@@ -231,13 +247,19 @@ def telecharger_plage(
         return donnees
 
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with ThreadPoolExecutor(max_workers=max(1, connexions)) as pool, destination.open("wb") as f:
-        # L'en-tête (sans l'index, dont les positions ne seraient plus justes)…
-        f.write(entete)
-        # …puis les segments, dans l'ordre : pool.map rend les résultats dans
-        # l'ordre des morceaux, même s'ils arrivent dans le désordre.
-        for donnees in pool.map(recuperer, morceaux):
-            f.write(donnees)
+    pool = ThreadPoolExecutor(max_workers=max(1, connexions))
+    try:
+        with destination.open("wb") as f:
+            # L'en-tête (sans l'index, dont les positions ne seraient plus justes)…
+            f.write(entete)
+            # …puis les segments, dans l'ordre : pool.map rend les résultats dans
+            # l'ordre des morceaux, même s'ils arrivent dans le désordre.
+            for donnees in pool.map(recuperer, morceaux):
+                f.write(donnees)
+    finally:
+        # En cas d'erreur ou d'annulation, on n'attend pas les morceaux encore en
+        # file : ils sont abandonnés (seuls ceux déjà en vol terminent).
+        pool.shutdown(wait=False, cancel_futures=True)
 
     return Plage(destination, utiles[0].debut, len(entete) + (b - a + 1))
 

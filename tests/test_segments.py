@@ -216,7 +216,7 @@ def test_repli_sur_ytdlp_si_format_inadapte(faux_youtube, serveur, tmp_path, mon
                        "formats": [f for f in infos["valeur"]["formats"] if f["ext"] != "mp4"]}
     appels = []
 
-    def faux_ytdlp(info, debut, fin, destination, options, dire, rapport):
+    def faux_ytdlp(info, debut, fin, destination, options, dire, rapport, arret=None):
         appels.append((debut, fin))
         rapport["methode"] = "yt-dlp"
         destination.write_bytes(b"")

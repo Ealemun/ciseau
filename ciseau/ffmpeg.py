@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 from collections.abc import Callable
 from pathlib import Path
 
@@ -92,13 +93,18 @@ def executer(
     args: list[str],
     duree_attendue: float | None = None,
     sur_progression: Progression | None = None,
+    arret: threading.Event | None = None,
 ) -> None:
     """Lance ffmpeg avec `args` (sans le binaire) et attend la fin.
 
     Si `duree_attendue` et `sur_progression` sont fournis, lit la sortie
     `-progress` de ffmpeg pour appeler `sur_progression(fraction)` au fil de l'eau.
+    Si `arret` est levé pendant l'exécution, ffmpeg est tué et Annulation levée.
     Lève RuntimeError avec les dernières lignes de stderr si ffmpeg échoue.
     """
+    from .annulation import Annulation, verifier
+
+    verifier(arret)
     commande = [chemin_ffmpeg(), "-hide_banner", "-loglevel", "error", "-nostdin"]
     suivre = sur_progression is not None and duree_attendue
     if suivre:
@@ -115,6 +121,18 @@ def executer(
         errors="replace",
     )
 
+    # Surveillant : tue ffmpeg dès que l'arrêt est demandé. Il se termine de
+    # lui-même quand ffmpeg a fini (vérification toutes les 0,2 s).
+    tue = threading.Event()
+    if arret is not None:
+        def surveiller() -> None:
+            while proc.poll() is None:
+                if arret.wait(0.2):
+                    tue.set()
+                    proc.kill()
+                    return
+        threading.Thread(target=surveiller, name="ciseau-arret-ffmpeg", daemon=True).start()
+
     if suivre and proc.stdout is not None:
         for ligne in proc.stdout:
             # ffmpeg émet "out_time_us=12345678" (microsecondes déjà encodées).
@@ -126,6 +144,8 @@ def executer(
                 sur_progression(min(1.0, max(0.0, secondes / duree_attendue)))  # type: ignore[arg-type]
 
     _, erreurs = proc.communicate()
+    if tue.is_set():
+        raise Annulation()
     if proc.returncode != 0:
         dernieres = "\n".join(erreurs.strip().splitlines()[-8:])
         raise RuntimeError(f"ffmpeg a échoué (code {proc.returncode}) :\n{dernieres}")
