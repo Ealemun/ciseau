@@ -174,3 +174,43 @@ def test_lien_direct_http(serveur, serveur_http_media):
     fini = attendre_fin(serveur, t["id"])
     assert fini["statut"] == "termine", fini["erreur"]
     assert ffmpeg.duree(fini["fichier"]) == pytest.approx(3.5, abs=0.15)
+
+
+# ---------------------------------------------------------------------------
+# Choix du port au démarrage
+# ---------------------------------------------------------------------------
+
+def test_port_occupe_on_prend_le_suivant(tmp_path):
+    """Un autre programme sur le port demandé : ciseau démarre sur le suivant."""
+    import socket
+
+    from ciseau import serveur as module
+
+    occupant = socket.socket()
+    occupant.bind(("127.0.0.1", 0))
+    occupant.listen()
+    port = occupant.getsockname()[1]
+    try:
+        srv, url = module.demarrer(port, tmp_path)
+        try:
+            assert srv is not None and srv.server_address[1] > port
+            assert url == f"http://127.0.0.1:{srv.server_address[1]}/"
+        finally:
+            srv.server_close()
+    finally:
+        occupant.close()
+
+
+def test_ciseau_deja_lance_reutilise(serveur, tmp_path):
+    """Second lancement : pas de second serveur, on réutilise celui qui tourne."""
+    from ciseau import serveur as module
+
+    port = serveur.server_address[1]
+    assert module.ciseau_deja_lance(port)
+    srv, url = module.demarrer(port, tmp_path)
+    assert srv is None and url == f"http://127.0.0.1:{port}/"
+
+
+def test_version_identifie_ciseau(serveur):
+    _, d = requete(serveur, "GET", "/api/version")
+    assert d["application"] == "ciseau"

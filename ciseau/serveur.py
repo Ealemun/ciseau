@@ -385,7 +385,10 @@ class Gestionnaire(BaseHTTPRequestHandler):
         if chemin in ("/", "/index.html"):
             self._fichier(DOSSIER_UI / "index.html")
         elif chemin == "/api/version":
-            self._json({"version": __version__, "dossier": str(self.server.file.dossier_sortie),
+            # « application » permet à l'extension et à un second lancement de
+            # reconnaître ciseau parmi d'autres serveurs locaux.
+            self._json({"application": "ciseau", "version": __version__,
+                        "dossier": str(self.server.file.dossier_sortie),
                         "paralleles": self.server.file.paralleles})
         elif chemin == "/api/jobs":
             self._json(self.server.file.tous())
@@ -445,6 +448,11 @@ class ServeurCiseau(ThreadingHTTPServer):
     """ThreadingHTTPServer + la file de travaux partagée."""
 
     daemon_threads = True
+    # Par défaut, http.server active SO_REUSEADDR. Sous Windows, cette option
+    # permet à un second programme d'écouter sur un port DÉJÀ utilisé : deux
+    # serveurs se partageraient alors les requêtes au hasard. On la coupe pour
+    # qu'un port pris soit refusé net (et qu'on passe au suivant).
+    allow_reuse_address = os.name != "nt"
 
     def __init__(self, hote: str, port: int, dossier_sortie: Path, verbeux: bool = False,
                  paralleles: int = PARALLELES_DEFAUT) -> None:
@@ -457,16 +465,71 @@ class ServeurCiseau(ThreadingHTTPServer):
         return f"http://{self.server_address[0]}:{self.server_address[1]}/"
 
 
+# Ports essayés au démarrage : le port demandé, puis les suivants. L'extension
+# cherche ciseau sur la même plage (voir extension/arriere-plan.js).
+PORTS_A_ESSAYER = 20
+
+
+def ciseau_deja_lance(port: int) -> bool:
+    """Vrai si un serveur ciseau répond déjà sur ce port de la machine locale."""
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/version", timeout=0.5) as r:
+            return json.loads(r.read()).get("application") == "ciseau"
+    except Exception:  # noqa: BLE001 — rien n'écoute, ou ce n'est pas ciseau
+        return False
+
+
+def demarrer(port: int, dossier_sortie: Path, verbeux: bool = False,
+             paralleles: int = PARALLELES_DEFAUT) -> tuple[ServeurCiseau | None, str]:
+    """Trouve où faire tourner ciseau. Renvoie (serveur créé ou None, adresse de l'interface).
+
+    - Si ciseau tourne déjà sur l'un des ports de la plage, on le réutilise
+      (None, son adresse) : pas de second serveur.
+    - Sinon, on prend le premier port libre. Un port est refusé quand un autre
+      programme l'occupe, ou quand Windows l'a réservé (fréquent après une
+      installation ou suppression de WSL, Hyper-V ou Docker : erreur 10013).
+    """
+    plage = range(port, port + PORTS_A_ESSAYER)
+    for p in plage:
+        if ciseau_deja_lance(p):
+            return None, f"http://127.0.0.1:{p}/"
+    refus = []
+    for p in plage:
+        try:
+            serveur = ServeurCiseau("127.0.0.1", p, dossier_sortie, verbeux, paralleles)
+            return serveur, serveur.url
+        except OSError as exc:  # port occupé (10048) ou interdit (10013)
+            refus.append(f"{p} ({exc.strerror or exc})")
+    raise RuntimeError(
+        f"aucun port libre entre {plage.start} et {plage.stop - 1} : "
+        + "; ".join(refus[:3]) + ("…" if len(refus) > 3 else "")
+        + ". Essaie un autre point de départ : ciseau ui --port 9000"
+    )
+
+
 def lancer(port: int = 8765, dossier_sortie: Path = Path("extraits"),
            ouvrir_navigateur: bool = True, verbeux: bool = False,
            paralleles: int = PARALLELES_DEFAUT) -> None:
     """Démarre le serveur (bloquant) et ouvre le navigateur sur l'interface."""
-    serveur = ServeurCiseau("127.0.0.1", port, dossier_sortie.resolve(), verbeux, paralleles)
-    print(f"ciseau {__version__} — interface sur {serveur.url}  (Ctrl+C pour arrêter)")
+    import webbrowser
+
+    serveur, url = demarrer(port, dossier_sortie.resolve(), verbeux, paralleles)
+    if serveur is None:
+        # Un ciseau tourne déjà (autre fenêtre) : on ouvre simplement son interface.
+        print(f"ciseau est déjà lancé sur {url} : ouverture de l'interface.")
+        if ouvrir_navigateur:
+            webbrowser.open(url)
+        return
+
+    print(f"ciseau {__version__} — interface sur {url}  (Ctrl+C pour arrêter)")
+    if serveur.server_address[1] != port:
+        print(f"  (port {port} indisponible : ciseau a pris le {serveur.server_address[1]} ; "
+              "l'extension le retrouvera seule)")
     print(f"extraits rangés dans {serveur.file.dossier_sortie}, {serveur.file.paralleles} à la fois")
     if ouvrir_navigateur:
-        import webbrowser
-        threading.Timer(0.4, lambda: webbrowser.open(serveur.url)).start()
+        threading.Timer(0.4, lambda: webbrowser.open(url)).start()
     try:
         serveur.serve_forever()
     except KeyboardInterrupt:

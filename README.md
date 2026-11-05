@@ -135,7 +135,8 @@ puis relance `ciseau.bat`. Si tu as installé l'extension, clique aussi sur la f
 | Le lecteur intégré affiche « Cette vidéo n'est pas disponible » | Le propriétaire interdit la lecture de sa vidéo hors de YouTube (fréquent pour les chaînes officielles). L'extraction marche quand même : règle début et fin avec la frise ou les champs, ou utilise l'extension sur la page YouTube. |
 | « [WinError 1326] Le nom d'utilisateur ou le mot de passe est incorrect » avec un chemin `\\wsl.localhost\…` | Un dossier devenu injoignable (WSL supprimé, lecteur réseau déconnecté) traîne dans la variable `PYTHONPATH`. ciseau l'ignore désormais ; pour le retirer de Windows, voir la variable `PYTHONPATH` dans « Modifier les variables d'environnement système ». |
 | Des extraits restent longtemps « en attente » | Les places sont prises par des extraits plus longs, souvent en mode **Précis**. Annule-les, passe celui que tu veux en premier, ou augmente **En même temps**. |
-| Le port 8765 est déjà utilisé | Lance `python -m ciseau ui --port 8766` et règle le même port dans la fenêtre de l'extension. |
+| La fenêtre noire indique « port 8765 indisponible : ciseau a pris le 8766 » | Rien à faire : un autre programme occupe le port, ou Windows l'a réservé (fréquent après une installation ou suppression de WSL, Hyper-V ou Docker). ciseau prend le port libre suivant, et l'extension le retrouve seule. Pour voir les plages réservées : `netsh interface ipv4 show excludedportrange protocol=tcp`. |
+| « ciseau est déjà lancé » au démarrage | Une autre fenêtre de ciseau tourne déjà : le navigateur s'ouvre simplement dessus. |
 
 ---
 
