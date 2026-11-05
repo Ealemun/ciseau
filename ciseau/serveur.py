@@ -3,7 +3,7 @@
 Volontairement bâti sur la bibliothèque standard (http.server + threads)
 pour que l'outil s'installe sans dépendance supplémentaire. Un seul
 utilisateur, en local : un serveur multi-threads et une file de travaux
-traités un par un (ffmpeg occupe déjà tous les cœurs) suffisent largement.
+pilotable (quelques extraits à la fois) suffisent largement.
 
 Routes :
     GET  /                 -> la page (ui/index.html)
@@ -14,6 +14,10 @@ Routes :
     GET  /api/jobs/<id>    -> un travail
     GET  /fichier/<id>     -> télécharge le fichier produit par ce travail
     POST /api/jobs/<id>/dossier -> ouvre le dossier du fichier dans l'explorateur
+    POST /api/jobs/<id>/annuler -> annule un extrait en attente ou en cours
+    POST /api/jobs/<id>/priorite -> passe un extrait en attente en tête de file
+    POST /api/annuler-attente  -> annule tous les extraits en attente
+    POST /api/paralleles       {n}  -> règle le nombre d'extraits simultanés (1 à 8)
 """
 
 from __future__ import annotations
@@ -22,7 +26,6 @@ import json
 import mimetypes
 import os
 import platform
-import queue
 import subprocess
 import threading
 import time
@@ -34,6 +37,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from . import __version__, lot, pipeline, resolver
+from .annulation import Annulation
 from .options import Options
 
 DOSSIER_UI = Path(__file__).parent / "ui"
@@ -50,10 +54,10 @@ class Travail:
     debut: str | float | None
     fin: str | float | None
     mode: str
-    statut: str = "en_attente"      # en_attente | en_cours | termine | erreur
+    statut: str = "en_attente"      # en_attente | en_cours | termine | erreur | annule
     message: str = ""               # étape en cours, lisible
     progression: float | None = None  # 0..1 quand ffmpeg la rapporte (découpe locale)
-    titre: str = ""
+    titre: str = ""                 # connu dès l'analyse
     fichier: str | None = None      # chemin du fichier produit
     nom_fichier: str | None = None
     erreur: str | None = None
@@ -65,28 +69,36 @@ class Travail:
 
 
 PARALLELES_DEFAUT = 3
+PARALLELES_MAX = 8
 
 
 class FileDeTravaux:
-    """File FIFO + plusieurs threads ouvriers qui exécutent pipeline.extraire().
+    """File d'attente pilotable + plusieurs threads ouvriers qui exécutent pipeline.extraire().
 
-    `paralleles` extraits sont traités en même temps : pendant que l'un
-    télécharge, un autre découpe, un troisième interroge YouTube… Au-delà de
-    3 ou 4, on gagne peu (la connexion ou le processeur saturent) et on risque
-    d'attirer l'attention de YouTube, qui bride les adresses trop gourmandes.
+    - `paralleles` extraits tournent en même temps ; le nombre se règle à chaud
+      (regler_paralleles). Au-delà de 3 ou 4, on gagne peu : un réencodage
+      occupe déjà tout le processeur, un téléchargement toute la connexion, et
+      YouTube bride les adresses trop gourmandes.
+    - Un extrait en attente peut être annulé ou passé en tête de file.
+    - Un extrait en cours peut être annulé : son signal d'arrêt est levé et
+      chaque étape s'interrompt au plus vite (voir annulation.py).
     """
 
     def __init__(self, dossier_sortie: Path, paralleles: int = PARALLELES_DEFAUT) -> None:
         self.dossier_sortie = dossier_sortie
-        self.paralleles = max(1, paralleles)
+        self.paralleles = 0
         self._travaux: dict[str, Travail] = {}
-        self._ordre: list[str] = []
-        self._file: queue.Queue[str] = queue.Queue()
+        self._ordre: list[str] = []          # ordre d'ajout, pour l'affichage
+        self._attente: list[str] = []        # identifiants en attente, le prochain en tête
+        self._arrets: dict[str, threading.Event] = {}  # signal d'arrêt de chaque travail
+        self._ouvriers = 0                   # threads ouvriers vivants
+        # Une seule serrure pour tout l'état ; la Condition réveille les ouvriers
+        # quand un travail arrive ou quand leur nombre change.
         self._verrou = threading.Lock()
-        for n in range(self.paralleles):
-            threading.Thread(target=self._boucle, name=f"ciseau-ouvrier-{n + 1}", daemon=True).start()
+        self._condition = threading.Condition(self._verrou)
+        self.regler_paralleles(paralleles)
 
-    # -- API publique --------------------------------------------------------
+    # -- Ajout ---------------------------------------------------------------
 
     def ajouter(self, donnees: dict) -> Travail:
         # Attention : 0 est un début valide, on ne peut donc pas écrire `x or None`.
@@ -101,14 +113,16 @@ class FileDeTravaux:
             source=str(donnees["source"]).strip(),
             debut=temps("debut"),
             fin=temps("fin"),
-            mode=donnees.get("mode") or "precis",
+            mode=donnees.get("mode") or "rapide",
             options={k: donnees[k] for k in ("hauteur_max", "encodeur", "cookies_navigateur")
                      if donnees.get(k)},
         )
-        with self._verrou:
+        with self._condition:
             self._travaux[travail.id] = travail
             self._ordre.append(travail.id)
-        self._file.put(travail.id)
+            self._arrets[travail.id] = threading.Event()
+            self._attente.append(travail.id)
+            self._condition.notify()
         return travail
 
     def ajouter_lot(self, donnees: dict) -> list[Travail]:
@@ -122,26 +136,98 @@ class FileDeTravaux:
         return [self.ajouter({**communs, "source": l.source, "debut": l.debut, "fin": l.fin})
                 for l in lignes]
 
+    # -- Consultation --------------------------------------------------------
+
     def tous(self) -> list[dict]:
+        """Tous les travaux, du plus récent au plus ancien.
+
+        Ceux en attente portent en plus `rang` : 1 = le prochain à partir.
+        """
         with self._verrou:
-            return [asdict(self._travaux[i]) for i in reversed(self._ordre)]
+            rangs = {ident: n for n, ident in enumerate(self._attente, start=1)}
+            return [{**asdict(self._travaux[i]), "rang": rangs.get(i)} for i in reversed(self._ordre)]
 
     def un(self, ident: str) -> Travail | None:
         with self._verrou:
             return self._travaux.get(ident)
 
-    # -- Ouvrier -------------------------------------------------------------
+    def etat(self) -> dict:
+        with self._verrou:
+            return {"paralleles": self.paralleles, "en_attente": len(self._attente),
+                    "en_cours": sum(t.statut == "en_cours" for t in self._travaux.values())}
+
+    # -- Pilotage ------------------------------------------------------------
+
+    def annuler(self, ident: str) -> Travail:
+        """Annule un travail en attente (retiré de la file) ou en cours (interrompu)."""
+        with self._condition:
+            t = self._travaux.get(ident)
+            if t is None:
+                raise ValueError("extrait inconnu")
+            if t.statut == "en_attente":
+                self._attente.remove(ident)
+                t.statut, t.message, t.termine_le = "annule", "annulé", time.time()
+            elif t.statut == "en_cours":
+                # L'ouvrier passera le travail à « annule » quand l'étape en cours aura cédé.
+                self._arrets[ident].set()
+                t.message = "annulation…"
+            else:
+                raise ValueError("cet extrait est déjà terminé")
+            return t
+
+    def annuler_attente(self) -> int:
+        """Annule tous les travaux en attente (ceux en cours continuent). Renvoie leur nombre."""
+        with self._condition:
+            n = len(self._attente)
+            for ident in self._attente:
+                t = self._travaux[ident]
+                t.statut, t.message, t.termine_le = "annule", "annulé", time.time()
+            self._attente.clear()
+            return n
+
+    def prioriser(self, ident: str) -> Travail:
+        """Place un travail en attente en tête de file : il partira au prochain créneau libre."""
+        with self._condition:
+            if ident not in self._attente:
+                raise ValueError("cet extrait n'est pas en attente")
+            self._attente.remove(ident)
+            self._attente.insert(0, ident)
+            return self._travaux[ident]
+
+    def regler_paralleles(self, n: int) -> int:
+        """Change le nombre d'extraits traités en même temps, sans redémarrer.
+
+        En hausse : de nouveaux ouvriers démarrent aussitôt. En baisse : les
+        ouvriers en trop finissent leur extrait en cours, puis s'arrêtent.
+        """
+        n = max(1, min(PARALLELES_MAX, int(n)))
+        with self._condition:
+            self.paralleles = n
+            while self._ouvriers < n:
+                self._ouvriers += 1
+                threading.Thread(target=self._boucle, name=f"ciseau-ouvrier-{self._ouvriers}",
+                                 daemon=True).start()
+            self._condition.notify_all()  # réveille les ouvriers en trop pour qu'ils sortent
+        return n
+
+    # -- Ouvriers ------------------------------------------------------------
 
     def _boucle(self) -> None:
         while True:
-            ident = self._file.get()
-            travail = self.un(ident)
-            if travail is None:
-                continue
-            self._executer(travail)
+            with self._condition:
+                # Attendre un travail… sauf si cet ouvrier est devenu surnuméraire.
+                while not self._attente and self._ouvriers <= self.paralleles:
+                    self._condition.wait()
+                if self._ouvriers > self.paralleles:
+                    self._ouvriers -= 1
+                    return
+                ident = self._attente.pop(0)
+                travail = self._travaux[ident]
+                arret = self._arrets[ident]
+                travail.statut, travail.message, travail.commence_le = "en_cours", "démarrage…", time.time()
+            self._executer(travail, arret)
 
-    def _executer(self, t: Travail) -> None:
-        t.statut, t.message, t.commence_le = "en_cours", "démarrage…", time.time()
+    def _executer(self, t: Travail, arret: threading.Event) -> None:
         options = Options(
             mode=t.mode,  # type: ignore[arg-type]
             dossier_sortie=self.dossier_sortie,
@@ -151,22 +237,32 @@ class FileDeTravaux:
         )
 
         def message(texte: str) -> None:
-            t.message = texte
+            if not arret.is_set():  # garder « annulation… » affiché jusqu'au bout
+                t.message = texte
 
         def progression(fraction: float) -> None:
             t.progression = fraction
 
+        def info(media: resolver.MediaInfo) -> None:
+            t.titre = media.titre  # affiché à la place de l'adresse dès l'analyse
+
         try:
-            resultat = pipeline.extraire(t.source, t.debut, t.fin, options,
-                                         sur_message=message, sur_progression=progression)
+            resultat = pipeline.extraire(t.source, t.debut, t.fin, options, sur_message=message,
+                                         sur_progression=progression, arret=arret, sur_info=info)
             t.titre = resultat.info.titre
             t.fichier = str(resultat.fichier)
             t.nom_fichier = resultat.fichier.name
             t.rapport = resultat.rapport
             t.statut, t.message, t.progression = "termine", "terminé", 1.0
+        except Annulation:
+            t.statut, t.message = "annule", "annulé"
         except Exception as exc:  # noqa: BLE001 — on veut tout remonter à l'interface
-            t.statut, t.erreur, t.message = "erreur", str(exc), "échec"
-            traceback.print_exc()
+            if arret.is_set():
+                # Une étape a échoué parce qu'on l'interrompait : c'est une annulation.
+                t.statut, t.message = "annule", "annulé"
+            else:
+                t.statut, t.erreur, t.message = "erreur", str(exc), "échec"
+                traceback.print_exc()
         finally:
             t.termine_le = time.time()
 
@@ -294,8 +390,10 @@ class Gestionnaire(BaseHTTPRequestHandler):
         elif chemin == "/api/jobs":
             self._json(self.server.file.tous())
         elif chemin.startswith("/api/jobs/"):
-            t = self.server.file.un(chemin.split("/")[3])
-            self._json(asdict(t) if t else {"erreur": "inconnu"}, 200 if t else 404)
+            # Même forme que dans la liste (avec le rang dans la file pour un extrait en attente).
+            ident = chemin.split("/")[3]
+            t = next((x for x in self.server.file.tous() if x["id"] == ident), None)
+            self._json(t if t else {"erreur": "inconnu"}, 200 if t else 404)
         elif chemin.startswith("/fichier/"):
             t = self.server.file.un(chemin.split("/")[2])
             if t and t.fichier:
@@ -321,6 +419,15 @@ class Gestionnaire(BaseHTTPRequestHandler):
             elif chemin == "/api/lot":
                 travaux = self.server.file.ajouter_lot(self._lire_json())
                 self._json([asdict(t) for t in travaux], 201)
+            elif chemin.startswith("/api/jobs/") and chemin.endswith("/annuler"):
+                self._json(asdict(self.server.file.annuler(chemin.split("/")[3])))
+            elif chemin.startswith("/api/jobs/") and chemin.endswith("/priorite"):
+                self._json(asdict(self.server.file.prioriser(chemin.split("/")[3])))
+            elif chemin == "/api/annuler-attente":
+                self._json({"annules": self.server.file.annuler_attente()})
+            elif chemin == "/api/paralleles":
+                n = self.server.file.regler_paralleles(self._lire_json().get("n", PARALLELES_DEFAUT))
+                self._json({"paralleles": n})
             elif chemin.startswith("/api/jobs/") and chemin.endswith("/dossier"):
                 t = self.server.file.un(chemin.split("/")[3])
                 if t and t.fichier:

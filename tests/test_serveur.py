@@ -169,7 +169,8 @@ def test_lien_direct_http(serveur, serveur_http_media):
     assert statut == 200, info
     assert info["site"] == "direct" and info["duree"] == pytest.approx(12, abs=0.2)
 
-    _, t = requete(serveur, "POST", "/api/jobs", {"source": url, "debut": "0:04", "fin": "0:07.5"})
+    # Mode précis explicite : le mode par défaut (rapide) démarrerait sur l'image-clé précédente.
+    _, t = requete(serveur, "POST", "/api/jobs", {"source": url, "debut": "0:04", "fin": "0:07.5", "mode": "precis"})
     fini = attendre_fin(serveur, t["id"])
     assert fini["statut"] == "termine", fini["erreur"]
     assert ffmpeg.duree(fini["fichier"]) == pytest.approx(3.5, abs=0.15)
