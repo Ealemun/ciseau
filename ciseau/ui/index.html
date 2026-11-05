@@ -159,6 +159,15 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--acier);
 .travaux .boutons { grid-column: 1 / -1; display: flex; gap: 8px; }
 .travaux .msg-erreur { grid-column: 1 / -1; color: var(--coupe-2); font-size: 14px; white-space: pre-wrap; }
 .vide { color: var(--encre-2); font-size: 14px; }
+/* Barre au-dessus de la liste : titre à gauche, réglages à droite. */
+.pilotage { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 4px; }
+.pilotage h2 { margin: 0 auto 0 0; }
+.simultanes { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--encre-2); }
+.simultanes select { padding: 4px 8px; }
+.travaux .etat.annule { color: var(--acier); }
+.travaux li.annule .nom { color: var(--encre-2); text-decoration: line-through; text-decoration-color: var(--acier); }
+.travaux .boutons .discret { border-color: transparent; background: transparent; color: var(--encre-2); }
+.travaux .boutons .discret:hover { border-color: var(--acier); color: var(--encre); }
 
 @media (max-width: 640px) {
   section { padding: 18px 16px; }
@@ -190,8 +199,8 @@ kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--acier);
         <div class="reglages">
           <div class="reglage">Mode de coupe
             <span class="radios" role="radiogroup">
-              <label><input type="radio" name="mode" value="precis" checked>Précis, à l'image près</label>
-              <label><input type="radio" name="mode" value="rapide">Rapide, sans réencodage</label>
+              <label><input type="radio" name="mode" value="rapide" checked>Rapide, sans réencodage</label>
+              <label><input type="radio" name="mode" value="precis">Précis à l'image, lent</label>
               <label><input type="radio" name="mode" value="audio">Audio seul</label>
             </span>
           </div>
@@ -238,6 +247,7 @@ https://www.twitch.tv/videos/123 1:02:00 1:03:30"></textarea>
     <!-- 2. La vidéo et les repères -->
     <section class="video" id="video">
       <div class="lecteur" id="lecteur"></div>
+      <p class="aide" id="erreur-lecteur" hidden></p>
       <p class="titre" id="titre"></p>
       <p class="sous-titre" id="sous-titre"></p>
 
@@ -276,7 +286,16 @@ https://www.twitch.tv/videos/123 1:02:00 1:03:30"></textarea>
 
     <!-- 3. Les extraits -->
     <section>
-      <h2>Extraits</h2>
+      <div class="pilotage">
+        <h2>Extraits</h2>
+        <label class="simultanes">En même temps
+          <select id="paralleles" title="Nombre d'extraits traités en même temps">
+            <option>1</option><option>2</option><option>3</option><option>4</option>
+            <option>5</option><option>6</option><option>7</option><option>8</option>
+          </select>
+        </label>
+        <button type="button" class="petit" id="btn-annuler-attente" hidden>Annuler tout ce qui attend</button>
+      </div>
       <ul class="travaux" id="travaux"></ul>
       <p class="vide" id="vide">Aucun extrait pour l'instant.</p>
     </section>
@@ -321,13 +340,15 @@ let apercuTimer = null;
 const CLES = ["hauteur", "encodeur", "cookies"];
 try {
   CLES.forEach(k => { const v = localStorage.getItem("ciseau." + k); if (v !== null) $(k).value = v; });
-  const mode = localStorage.getItem("ciseau.mode");
+  // Clé « -v2 » : quand le mode par défaut est passé de Précis à Rapide, l'ancien
+  // choix mémorisé a été volontairement oublié une fois.
+  const mode = localStorage.getItem("ciseau.mode-v2");
   if (mode) document.querySelector(`input[name=mode][value=${mode}]`).checked = true;
 } catch (e) {}
 function memoriser() {
   try {
     CLES.forEach(k => localStorage.setItem("ciseau." + k, $(k).value));
-    localStorage.setItem("ciseau.mode", modeChoisi());
+    localStorage.setItem("ciseau.mode-v2", modeChoisi());
   } catch (e) {}
 }
 const modeChoisi = () => document.querySelector("input[name=mode]:checked").value;
@@ -335,7 +356,7 @@ document.querySelectorAll(".reglages select, input[name=mode]").forEach(el => el
 
 fetch("/api/version").then(r => r.json()).then(v => {
   $("dossier").textContent = v.dossier;
-  if (v.paralleles) $("aide-lot").textContent = `${v.paralleles} extraits traités en même temps.`;
+  if (v.paralleles) $("paralleles").value = String(v.paralleles);
 });
 
 /* ==================================================================
@@ -395,14 +416,46 @@ function afficherVideo(d) {
   if (youtube) {
     const div = document.createElement("div"); div.id = "yt"; lecteur.appendChild(div);
     chargerYouTube(() => {
-      player = new YT.Player("yt", { videoId: d.identifiant, playerVars: { start: Math.floor(debut), rel: 0, modestbranding: 1 } });
+      player = new YT.Player("yt", {
+        videoId: d.identifiant,
+        // origin : indique à YouTube quelle page intègre le lecteur (il le réclame désormais).
+        playerVars: { start: Math.floor(debut), rel: 0, modestbranding: 1, origin: location.origin },
+        events: { onError: ev => lecteurIndisponible(ev.data, d) },
+      });
     });
   } else if (d.miniature) {
     const img = document.createElement("img"); img.src = d.miniature; img.alt = ""; lecteur.appendChild(img);
   }
   lecteur.style.display = (youtube || d.miniature) ? "" : "none";
+  $("erreur-lecteur").hidden = true;
   $("video").classList.add("visible");
   $("erreur-extraire").hidden = true;
+}
+
+/* Lecteur YouTube refusé : on remplace l'écran noir par la miniature et une explication.
+   Codes d'erreur de l'API YouTube : 101 et 150 = intégration interdite par le propriétaire,
+   100 = vidéo privée ou supprimée, 153 = page d'origine non transmise. Le téléchargement,
+   lui, ne passe pas par ce lecteur et fonctionne quand même. */
+function lecteurIndisponible(code, d) {
+  player = null;
+  const raisons = {
+    101: "Le propriétaire de cette vidéo interdit sa lecture hors de YouTube.",
+    150: "Le propriétaire de cette vidéo interdit sa lecture hors de YouTube.",
+    100: "Cette vidéo est privée ou a été supprimée.",
+  };
+  const lecteur = $("lecteur");
+  lecteur.innerHTML = "";
+  if (d.miniature) {
+    const img = document.createElement("img"); img.src = d.miniature; img.alt = ""; lecteur.appendChild(img);
+  } else {
+    lecteur.style.display = "none";
+  }
+  ["btn-debut-ici", "btn-fin-ici", "btn-apercu", "aide-touches"].forEach(id => $(id).hidden = true);
+  $("tete").style.display = "none";
+  $("erreur-lecteur").textContent = (raisons[code] || "YouTube refuse la lecture intégrée de cette vidéo.")
+    + " L'extraction marche quand même : règle le début et la fin avec la frise ou les champs,"
+    + " ou utilise l'extension ciseau directement sur la page YouTube.";
+  $("erreur-lecteur").hidden = false;
 }
 
 function instantDepuisUrl(url) {
@@ -549,6 +602,22 @@ $("btn-lot").onclick = async () => {
 };
 $("lot").addEventListener("input", () => { $("erreur-lot").hidden = true; });
 
+/* Commandes de pilotage de la file (POST JSON, comme le reste de l'API). */
+async function commande(chemin, corps = {}) {
+  const r = await fetch(chemin, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(corps) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) alerteBreve(d.erreur || "commande refusée");
+  rafraichir();
+  return d;
+}
+function alerteBreve(texte) {
+  // Message discret sous la barre, effacé au bout de quelques secondes (pas de boîte modale).
+  $("aide-lot").textContent = texte;
+  setTimeout(() => { if ($("aide-lot").textContent === texte) $("aide-lot").textContent = ""; }, 4000);
+}
+$("btn-annuler-attente").onclick = () => commande("/api/annuler-attente");
+$("paralleles").onchange = () => commande("/api/paralleles", { n: +$("paralleles").value });
+
 /* Liste des travaux : interrogée chaque seconde tant qu'un travail tourne. */
 async function rafraichir() {
   const travaux = await fetch("/api/jobs").then(r => r.json());
@@ -556,13 +625,19 @@ async function rafraichir() {
   $("vide").hidden = travaux.length > 0;
   for (const t of travaux) {
     const li = document.createElement("li");
-    const etats = { en_attente: "en attente", en_cours: t.message || "en cours", termine: "terminé", erreur: "échec" };
+    const rang = t.rang === 1 ? "prochain" : `${t.rang}e dans la file`;
+    const etats = { en_attente: `en attente, ${rang}`, en_cours: t.message || "en cours", termine: "terminé", erreur: "échec", annule: "annulé" };
+    li.className = t.statut;
     const d1 = typeof t.debut === "number" ? fmt(t.debut, false) : (t.debut || "0:00");
     const d2 = typeof t.fin === "number" ? fmt(t.fin, false) : (t.fin || "fin");
     li.innerHTML = `
       <div><div class="nom"></div><div class="detail">${d1} → ${d2} · ${t.mode}</div></div>
       <div class="etat ${t.statut}"></div>`;
-    li.querySelector(".nom").textContent = t.nom_fichier || t.titre || t.source;
+    // Nom affiché : le fichier produit, sinon le titre (connu dès l'analyse), sinon le lien
+    // (ou, pour un fichier local, son seul nom plutôt que le chemin complet).
+    const source = /^[a-z][a-z0-9+.-]*:\/\//i.test(t.source) ? t.source : t.source.split(/[\\/]/).pop();
+    li.querySelector(".nom").textContent = t.nom_fichier || t.titre || source;
+    li.querySelector(".nom").title = t.source;
     if (t.statut === "termine" && t.rapport && t.rapport.methode) {
       // Ex. « segments · 31,3 Mo · 4,2 s », détail des étapes au survol.
       const r = t.rapport, sec = x => x.toFixed(1).replace(".", ",") + " s";
@@ -577,7 +652,7 @@ async function rafraichir() {
       li.querySelector(".detail").appendChild(info);
     }
     li.querySelector(".etat").textContent = etats[t.statut];
-    if (t.statut === "en_cours" || t.statut === "en_attente") {
+    if (t.statut === "en_cours") {  // pas de barre en attente : rien n'avance encore
       const barre = document.createElement("div");
       barre.className = "barre" + (t.progression == null ? " attente" : "");
       barre.innerHTML = `<i style="width:${Math.round((t.progression || 0) * 100)}%"></i>`;
@@ -595,8 +670,25 @@ async function rafraichir() {
     if (t.statut === "erreur") {
       const p = document.createElement("div"); p.className = "msg-erreur"; p.textContent = t.erreur; li.appendChild(p);
     }
+    // En attente : passer en premier ou annuler. En cours : annuler (libère sa place).
+    if (t.statut === "en_attente" || (t.statut === "en_cours" && t.message !== "annulation…")) {
+      const b = document.createElement("div"); b.className = "boutons";
+      if (t.statut === "en_attente") {
+        const premier = document.createElement("button");
+        premier.type = "button"; premier.className = "petit discret"; premier.textContent = "Passer en premier";
+        premier.onclick = () => commande(`/api/jobs/${t.id}/priorite`);
+        b.appendChild(premier);
+      }
+      const annuler = document.createElement("button");
+      annuler.type = "button"; annuler.className = "petit discret"; annuler.textContent = "Annuler";
+      annuler.onclick = () => commande(`/api/jobs/${t.id}/annuler`);
+      b.appendChild(annuler);
+      li.appendChild(b);
+    }
     ul.appendChild(li);
   }
+  // « Annuler tout ce qui attend » n'a d'intérêt qu'à partir de deux extraits en attente.
+  $("btn-annuler-attente").hidden = travaux.filter(t => t.statut === "en_attente").length < 2;
   const actif = travaux.some(t => t.statut === "en_cours" || t.statut === "en_attente");
   clearTimeout(rafraichir.timer);
   if (actif) rafraichir.timer = setTimeout(rafraichir, 1000);

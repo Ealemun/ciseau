@@ -26,7 +26,7 @@
   // ------------------------------------------------------------------
   let debut = null; // secondes ; null = début de la vidéo
   let fin = null;   // secondes ; null = fin de la vidéo
-  let reglages = { toucheDebut: "d", toucheFin: "e", mode: "precis", replie: false };
+  let reglages = { toucheDebut: "d", toucheFin: "e", mode: "rapide", replie: false };
   let travailId = null;      // travail en cours de suivi
   let minuterieSuivi = null; // setTimeout du suivi
   let finRevoir = null;      // instant où « Revoir » doit mettre en pause
@@ -211,8 +211,8 @@
   <div class="duree">
     <span>Durée <strong id="duree">—</strong></span>
     <select id="mode" title="Mode de coupe">
-      <option value="precis">Précis</option>
       <option value="rapide">Rapide</option>
+      <option value="precis">Précis (lent)</option>
       <option value="audio">Audio seul</option>
     </select>
   </div>
@@ -374,9 +374,18 @@
       travailId = null;
       return afficherStatut("Échec : " + echapper(t.erreur), true);
     }
-    const etape = t.statut === "en_attente" ? "En attente…" : echapper(t.message || "En cours…");
-    const pct = t.progression != null ? Math.round(t.progression * 100) : null;
-    afficherStatut(etape + (pct != null ? ` ${pct} %<div class="barre"><i style="width:${pct}%"></i></div>` : ""));
+    if (t.statut === "annule") {
+      travailId = null;
+      return afficherStatut("Extrait annulé.");
+    }
+    const etape = t.statut === "en_attente"
+      ? (t.rang ? `En attente (${t.rang === 1 ? "prochain" : t.rang + "e dans la file"})…` : "En attente…")
+      : echapper(t.message || "En cours…");
+    const pct = t.progression != null && t.statut === "en_cours" ? Math.round(t.progression * 100) : null;
+    afficherStatut(etape + (pct != null ? ` ${pct} %<div class="barre"><i style="width:${pct}%"></i></div>` : "")
+      + (t.message === "annulation…" ? "" : '<br><button id="annuler">Annuler</button>'));
+    const bouton = $("annuler");
+    if (bouton) bouton.onclick = () => api("POST", `/api/jobs/${id}/annuler`).then(suivre);
     minuterieSuivi = setTimeout(suivre, 1000);
   }
 
@@ -470,15 +479,17 @@
   // ------------------------------------------------------------------
   function sauver() {
     try {
-      chrome.storage.local.set({ mode: reglages.mode, replie: reglages.replie });
+      // « modeDecoupe » (et non plus « mode ») : l'ancien choix Précis est oublié une fois,
+      // depuis que Rapide est le mode par défaut.
+      chrome.storage.local.set({ modeDecoupe: reglages.mode, replie: reglages.replie });
     } catch {}
   }
 
-  chrome.storage.local.get(["toucheDebut", "toucheFin", "mode", "replie"], (r) => {
+  chrome.storage.local.get(["toucheDebut", "toucheFin", "modeDecoupe", "replie"], (r) => {
     reglages = {
       toucheDebut: (r.toucheDebut || "d").toLowerCase(),
       toucheFin: (r.toucheFin || "e").toLowerCase(),
-      mode: r.mode || "precis",
+      mode: r.modeDecoupe || "rapide",
       replie: !!r.replie,
     };
     rafraichir();

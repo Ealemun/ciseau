@@ -15,9 +15,10 @@ from .ffmpeg import ENCODEUR_DEFAUT
 
 @dataclass
 class Options:
-    # Mode de découpe : "precis" par défaut (coupe à l'image près), "rapide" (copie
-    # de flux, démarre sur l'image-clé précédente) ou "audio" (bande-son seule).
-    mode: Mode = "precis"
+    # Mode de découpe : "rapide" par défaut (copie sans réencoder : instantané, sans
+    # perte, démarre sur l'image-clé précédente, quelques secondes de rab), "precis"
+    # (réencodage pour couper à l'image près : lent) ou "audio" (bande-son seule).
+    mode: Mode = "rapide"
 
     # Encodeur vidéo pour le mode précis (voir ffmpeg.ENCODEURS).
     encodeur: str = ENCODEUR_DEFAUT

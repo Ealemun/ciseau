@@ -36,10 +36,10 @@ def _construire_parseur() -> argparse.ArgumentParser:
     def options_extrait(sp: argparse.ArgumentParser) -> None:
         """Options communes à `clip` et `lot` : mode, qualité, dossier, cookies…"""
         mode = sp.add_mutually_exclusive_group()
-        mode.add_argument("--precis", action="store_true", default=True,
-                          help="coupe à l'image près, réencodage (défaut)")
         mode.add_argument("--rapide", action="store_true",
-                          help="copie sans réencodage : instantané, démarre sur l'image-clé précédente")
+                          help="copie sans réencodage : instantané, démarre sur l'image-clé précédente (défaut)")
+        mode.add_argument("--precis", action="store_true",
+                          help="coupe à l'image près, par réencodage : bien plus lent")
         mode.add_argument("--audio", action="store_true", help="bande-son seule (.m4a)")
         sp.add_argument("-d", "--dossier", type=Path, default=Path("extraits"),
                         help="dossier des extraits (défaut : ./extraits)")
@@ -93,7 +93,7 @@ def _construire_parseur() -> argparse.ArgumentParser:
 
 def _options_depuis_args(args: argparse.Namespace) -> Options:
     """Traduit les arguments argparse en Options du pipeline."""
-    mode = "audio" if getattr(args, "audio", False) else "rapide" if getattr(args, "rapide", False) else "precis"
+    mode = "audio" if getattr(args, "audio", False) else "precis" if getattr(args, "precis", False) else "rapide"
     return Options(
         mode=mode,
         encodeur=getattr(args, "encodeur", ffmpeg.ENCODEUR_DEFAUT),
