@@ -81,6 +81,16 @@ https://www.twitch.tv/videos/123 1:02:00 1:03:30
 
 Sous chaque extrait terminé, ciseau indique comment il l'a obtenu et en combien de temps (survole la ligne pour le détail de chaque étape).
 
+**Piloter la file :** au-dessus de la liste, **En même temps** règle combien d'extraits tournent à la fois, sans relancer ciseau. Sur chaque extrait :
+
+- **Annuler** arrête un extrait en attente ou en cours et libère aussitôt sa place pour le suivant ;
+- **Passer en premier** fait partir un extrait en attente au prochain créneau libre (son rang dans la file s'affiche à droite) ;
+- **Annuler tout ce qui attend** vide la file sans toucher aux extraits en cours.
+
+Le panneau de l'extension propose aussi **Annuler** pendant qu'un extrait tourne.
+
+**Rapide ou Précis ?** Le mode **Rapide** (par défaut) copie la vidéo sans la réencoder : l'extrait sort à la vitesse de ta connexion, sans perte de qualité, mais il démarre sur l'image-clé qui précède ton début, soit jusqu'à quelques secondes de rab. Le mode **Précis** réencode l'extrait (et seulement l'extrait, jamais la vidéo entière) pour couper pile sur l'image voulue : comptez 2 à 3 fois le temps réel en 1080p sur un processeur de portable. Si tu retravailles l'extrait dans un logiciel de montage, le mode Rapide suffit.
+
 ### 4. Installer l'extension (facultatif, recommandé)
 
 L'extension pose un petit panneau en bas à droite des pages YouTube : plus besoin de copier des liens.
@@ -121,7 +131,9 @@ puis relance `ciseau.bat`. Si tu as installé l'extension, clique aussi sur la f
 | Échec avec « Sign in to confirm you're not a bot » | YouTube veut une session connectée. Dans l'interface, ouvre **Réglages** → **Cookies du navigateur** et choisis **Firefox** si tu y es connecté à YouTube (le plus fiable sous Windows). Avec Chrome ou Edge, ferme complètement le navigateur avant d'extraire. |
 | Échec avec « Requested format is not available » ou « n challenge solving failed » | Installe Deno (`winget install DenoLand.Deno`) et relance `ciseau.bat`, qui met aussi yt-dlp à jour. |
 | Un extrait affiche « yt-dlp (méthode lente) » | La méthode rapide ne s'applique pas à cette vidéo : survole la ligne pour savoir pourquoi (pas de flux H.264 séparé, site qui ne sert pas de DASH MP4, adresse refusée…). L'extrait est quand même produit, mais au rythme de la vidéo. Si ça arrive sur YouTube, mets yt-dlp à jour (relance `ciseau.bat`, ou `make maj`). |
-| L'extrait démarre une ou deux secondes trop tôt | Tu es en mode **Rapide** : il démarre sur l'image-clé précédente. Passe en **Précis** (par défaut). |
+| L'extrait démarre une ou deux secondes trop tôt | C'est le mode **Rapide** (par défaut) : il démarre sur l'image-clé précédente. Pour couper pile, passe en **Précis** (plus lent). |
+| Le lecteur intégré affiche « Cette vidéo n'est pas disponible » | Le propriétaire interdit la lecture de sa vidéo hors de YouTube (fréquent pour les chaînes officielles). L'extraction marche quand même : règle début et fin avec la frise ou les champs, ou utilise l'extension sur la page YouTube. |
+| Des extraits restent longtemps « en attente » | Les places sont prises par des extraits plus longs, souvent en mode **Précis**. Annule-les, passe celui que tu veux en premier, ou augmente **En même temps**. |
 | Le port 8765 est déjà utilisé | Lance `python -m ciseau ui --port 8766` et règle le même port dans la fenêtre de l'extension. |
 
 ---
@@ -153,7 +165,7 @@ ciseau clip "https://…" 0:10 0:40 --cookies-navigateur firefox
 
 `LISTE.txt` contient une ligne par extrait, au même format que la zone « Plusieurs extraits d'un coup » de l'interface (voir `ciseau/lot.py`). Les lignes vides et celles qui commencent par `#` sont ignorées ; un échec n'arrête pas les autres extraits.
 
-Options de `ciseau ui` : `--port`, `-d DOSSIER` (dossier des extraits), `-j N` (extraits en même temps), `--sans-navigateur`.
+Options de `ciseau ui` : `--port`, `-d DOSSIER` (dossier des extraits), `-j N` (extraits en même temps, modifiable ensuite dans l'interface), `--sans-navigateur`.
 
 ### Vitesse : comment ciseau télécharge
 
@@ -163,7 +175,7 @@ ciseau procède autrement (`ciseau/segments.py`) :
 
 1. il lit l'index des flux vidéo et audio (quelques dizaines de Ko) pour savoir quels octets couvrent l'extrait ;
 2. il ne télécharge que ces octets, par morceaux de 10 Mo, sur 4 connexions par flux (`--connexions`), vidéo et audio en même temps ;
-3. il découpe en local, à l'image près.
+3. il assemble et coupe en local : copie instantanée en mode rapide, réencodage de l'extrait seul en mode précis.
 
 Sur un serveur de test bridé comme YouTube, extraire 1 minute d'une vidéo 720p passe de 50 s à la seule durée du transfert (31 Mo, soit environ 3 s sur une connexion à 100 Mb/s). Cette méthode s'applique aux vidéos servies en DASH MP4 (H.264 + AAC), soit l'essentiel de YouTube. Comme avant, ciseau prend le meilleur flux H.264, soit 1080p au plus sur YouTube (au-delà, YouTube ne propose que du VP9 ou de l'AV1). Si la méthode rapide ne s'applique pas, ciseau se rabat automatiquement sur yt-dlp.
 
@@ -171,14 +183,15 @@ S'y ajoutent :
 
 - les métadonnées de chaque vidéo sont gardées 30 minutes : l'analyse puis le téléchargement n'interrogent YouTube qu'une fois ;
 - plusieurs extraits tournent en parallèle (3 par défaut). Monter au-delà de 4 ou 5 gagne peu (la connexion ou le processeur saturent) et risque d'attirer l'attention de YouTube, qui bride les adresses trop gourmandes ;
-- en mode précis, la découpe réencode l'extrait : sur une carte graphique, choisis l'encodeur correspondant (**Réglages** → **Encodeur**) pour aller plusieurs fois plus vite ; le mode rapide, lui, ne réencode rien.
+- le mode rapide (par défaut) ne réencode rien. En mode précis, la découpe réencode l'extrait : c'est alors l'étape la plus longue. Sur une carte graphique, choisis l'encodeur correspondant (**Réglages** → **Encodeur**) pour aller plusieurs fois plus vite ;
+- chaque étape peut être interrompue (`ciseau/annulation.py`) : le téléchargement s'arrête dans les 64 Ko qui suivent, ffmpeg dans la demi-seconde.
 
 ### Modes de découpe
 
 | Mode | Option | Début | Vitesse | Qualité |
 |---|---|---|---|---|
-| précis (défaut) | `--precis` | à l'image près | réencodage : à peu près le temps réel sur le processeur, bien plus vite avec `--encodeur h264_nvenc` (NVIDIA), `h264_amf` (AMD), `h264_qsv` (Intel), `h264_videotoolbox` (Mac) | quasi sans perte |
-| rapide | `--rapide` | sur l'image-clé **précédente** (quelques secondes de rab possibles, rien ne manque) | instantané | copie, sans perte |
+| rapide (défaut) | `--rapide` | sur l'image-clé **précédente** (quelques secondes de rab possibles, rien ne manque) | instantané | copie, sans perte |
+| précis | `--precis` | à l'image près | réencodage de l'extrait : 2 à 3 fois le temps réel sur le processeur, bien plus vite avec `--encodeur h264_nvenc` (NVIDIA), `h264_amf` (AMD), `h264_qsv` (Intel), `h264_videotoolbox` (Mac) | quasi sans perte |
 | audio | `--audio` | à l'instant près | rapide | AAC 192 kb/s |
 
 ---
@@ -197,6 +210,7 @@ ciseau/
   nommage.py     noms de fichiers portables
   segments.py    téléchargement rapide : index sidx, octets utiles seulement, morceaux de 10 Mo
   lot.py         lecture d'une liste d'extraits (une ligne par extrait)
+  annulation.py  signal d'arrêt partagé par toutes les étapes
   pipeline.py    orchestration : extraire(source, debut, fin, options)
   cli.py         ligne de commande
   serveur.py     API JSON locale (bibliothèque standard) + file de travaux
